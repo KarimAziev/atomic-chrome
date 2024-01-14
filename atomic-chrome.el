@@ -1,9 +1,9 @@
-;;; atomic-chrome.el --- Edit Chrome text area with Emacs using Atomic Chrome
+;;; atomic-chrome.el --- Edit Chrome text area with Emacs using Atomic Chrome -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2016 alpha22jp <alpha22jp@gmail.com>
 
 ;; Author: alpha22jp <alpha22jp@gmail.com>
-;; Package-Requires: ((emacs "24.4") (let-alist "1.0.4") (websocket "1.4"))
+;; Package-Requires: ((emacs "24.4") (let-alist "1.0.6") (websocket "1.13"))
 ;; Keywords: chrome edit textarea
 ;; URL: https://github.com/alpha22jp/atomic-chrome
 ;; Version: 2.0.0
@@ -153,7 +153,8 @@ Looks in `atomic-chrome-buffer-table'."
   "Send request to update text with current buffer content."
   (interactive)
   (let ((socket (atomic-chrome-get-websocket (current-buffer)))
-        (text (buffer-substring-no-properties (point-min) (point-max))))
+        (text (buffer-substring-no-properties (point-min)
+                                              (point-max))))
     (when (and socket text)
       (websocket-send-text
        socket
@@ -161,18 +162,20 @@ Looks in `atomic-chrome-buffer-table'."
         (if (eq (websocket-server-conn socket) atomic-chrome-server-ghost-text)
             (list (cons "text" text))
           (list '("type" . "updateText")
-                (cons "payload" (list (cons "text" text))))))))
-    (set-buffer-modified-p nil)))
+                (cons "payload" (list (cons "text" text))))))))))
 
 (defun atomic-chrome-set-major-mode (url)
   "Set major mode for editing buffer depending on URL.
 `atomic-chrome-url-major-mode-alist' can be used to select major mode.
 The specified major mode is used if URL matches to one of the alist,
 otherwise fallback to `atomic-chrome-default-major-mode'"
-  (funcall (or (and url (assoc-default url
-                                       atomic-chrome-url-major-mode-alist
-                                       'string-match))
-               atomic-chrome-default-major-mode)))
+  (let ((mode (assoc-default url atomic-chrome-url-major-mode-alist
+                             'string-match)))
+    (cond (mode (funcall mode))
+          ((and buffer-file-name
+                (file-name-extension buffer-file-name))
+           (set-auto-mode))
+          (t (funcall atomic-chrome-default-major-mode)))))
 
 (defun atomic-chrome-show-edit-buffer (buffer title)
   "Show editing buffer BUFFER.
@@ -204,17 +207,39 @@ frame, depending on `atomic-chrome-buffer-open-style'."
     (select-frame-set-input-focus (window-frame (selected-window)))
     edit-frame))
 
-(defun atomic-chrome-create-buffer (socket url title text)
+
+(defun atomic-chrome-normalize-file-extension (file-extension)
+  "Normalize FILE-EXTENSION input to a string or prompt for choice.
+
+Argument FILE-EXTENSION is a string, list, or vector of strings."
+  (when (vectorp file-extension)
+    (setq file-extension (append file-extension nil)))
+  (cond ((or (not file-extension)
+             (stringp file-extension))
+         file-extension)
+        ((length> file-extension 1)
+         (completing-read "File extension: "
+                          file-extension))
+        (t (car-safe file-extension))))
+
+(defun atomic-chrome-create-buffer (socket url title text &optional extension)
   "Create buffer associated with websocket specified by SOCKET.
 URL is used to determine the major mode of the buffer created,
 TITLE is used for the buffer name and TEXT is inserted to the buffer."
-  (let ((buffer (generate-new-buffer (if (string-empty-p title) "No title" title))))
+  (let* ((suffix (atomic-chrome-normalize-file-extension
+                  extension))
+         (file (make-temp-file (if (string-empty-p title)
+                                   "No title" title)
+                               nil
+                               suffix))
+         (buffer (find-file-noselect file)))
     (with-current-buffer buffer
-      (puthash buffer
-             (list socket (atomic-chrome-show-edit-buffer buffer title))
-             atomic-chrome-buffer-table)
-      (atomic-chrome-set-major-mode url)
-      (insert text))))
+      (let ((kill-buffer-query-functions nil))
+        (puthash buffer
+                 (list socket (atomic-chrome-show-edit-buffer buffer title))
+                 atomic-chrome-buffer-table)
+        (atomic-chrome-set-major-mode url)
+        (insert text)))))
 
 (defun atomic-chrome-close-edit-buffer (buffer)
   "Close buffer BUFFER if it's one of Atomic Chrome edit buffers."
@@ -233,7 +258,7 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
   "Close current buffer and connection from client."
   (interactive)
   (when (or (not (buffer-modified-p))
-	    (yes-or-no-p "Buffer has not been saved, close anyway? "))
+            (yes-or-no-p "Buffer has not been saved, close anyway? "))
     (atomic-chrome-close-edit-buffer (current-buffer))))
 
 (defun atomic-chrome-update-buffer (socket text)
@@ -247,17 +272,22 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
 (defun atomic-chrome-on-message (socket frame)
   "Handle data received from the websocket client specified by SOCKET.
 FRAME holds the raw data received."
-  (let ((msg (json-read-from-string
-              (decode-coding-string
-               (encode-coding-string (websocket-frame-payload frame) 'utf-8)
-	       'utf-8))))
+  (let ((payload (websocket-frame-payload frame))
+        (msg))
+    (setq msg (json-read-from-string
+               (decode-coding-string
+                (encode-coding-string payload 'utf-8)
+                'utf-8)))
     (let-alist msg
       (if (eq (websocket-server-conn socket) atomic-chrome-server-ghost-text)
           (if (atomic-chrome-get-buffer-by-socket socket)
               (atomic-chrome-update-buffer socket .text)
-            (atomic-chrome-create-buffer socket .url .title .text))
+            (atomic-chrome-create-buffer socket .url .title .text
+                                         .extension))
         (cond ((string= .type "register")
-               (atomic-chrome-create-buffer socket .payload.url .payload.title .payload.text))
+               (atomic-chrome-create-buffer socket .payload.url .payload.title
+                                            .payload.text
+                                            .payload.extension))
               ((string= .type "updateText")
                (when atomic-chrome-enable-bidirectional-edit
                  (atomic-chrome-update-buffer socket .payload.text))))))))
@@ -269,8 +299,8 @@ FRAME holds the raw data received."
 
 (defvar atomic-chrome-edit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-s") 'atomic-chrome-send-buffer-text)
-    (define-key map (kbd "C-c C-c") 'atomic-chrome-close-current-buffer)
+    (define-key map (kbd "C-c C-s") #'atomic-chrome-send-buffer-text)
+    (define-key map (kbd "C-c C-c") #'atomic-chrome-close-current-buffer)
     map)
   "Keymap for minor mode `atomic-chrome-edit-mode'.")
 
@@ -281,9 +311,9 @@ FRAME holds the raw data received."
   :init-value nil
   :keymap atomic-chrome-edit-mode-map
   (when atomic-chrome-edit-mode
-    (add-hook 'kill-buffer-hook 'atomic-chrome-close-connection nil t)
+    (add-hook 'kill-buffer-hook #'atomic-chrome-close-connection nil t)
     (when atomic-chrome-enable-auto-update
-      (add-hook 'post-command-hook 'atomic-chrome-send-buffer-text nil t))))
+      (add-hook 'post-command-hook #'atomic-chrome-send-buffer-text nil t))))
 
 (defun atomic-chrome-turn-on-edit-mode ()
   "Turn on `atomic-chrome-edit-mode' if the buffer is an editing buffer."
@@ -338,10 +368,10 @@ STRING is the string process received."
   (setf string (concat (process-get proc :previous-string) string))
   (let* ((request (atomic-chrome-httpd-parse-string string))
          (content-length (cadr (assoc "Content-Length" request)))
-         (uri (cl-cadar request))
          (content (cadr (assoc "Content" request))))
     (if (and content-length
-             (< (string-bytes content) (string-to-number content-length)))
+             (< (string-bytes content)
+                (string-to-number content-length)))
         (process-put proc :previous-string string)
       (atomic-chrome-httpd-send-response proc))))
 
@@ -386,6 +416,8 @@ Fails silently if a server is already running."
     (delete-process "atomic-chrome-httpd"))
   (global-atomic-chrome-edit-mode 0))
 
-(provide 'atomic-chrome)
 
+
+;;; atomic-chrome.el ends here
+(provide 'atomic-chrome)
 ;;; atomic-chrome.el ends here
