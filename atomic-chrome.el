@@ -113,6 +113,17 @@ corresponding major modes."
   :type 'hook
   :group 'atomic-chrome)
 
+(defcustom atomic-chrome-debug nil
+  "Whether to enable debugging for Atomic Chrome.
+
+Enables or disables debug logging for the Atomic Chrome extension integration.
+When set to t, debug messages related to websocket communication and data
+handling are logged to the *Messages* buffer, aiding in troubleshooting and
+development. The default value is nil, indicating that debug logging is turned
+off."
+  :group 'atomic-chrome
+  :type 'boolean)
+
 (defvar atomic-chrome-server-atomic-chrome nil
   "Websocket server connection handle for Atomic Chrome.")
 
@@ -323,7 +334,8 @@ FRAME holds the raw data received."
             (atomic-chrome-create-buffer socket .url .title .text
                                          .extension))
         (cond ((string= .type "keepalive")
-               (message "atomic chrome: keepalive"))
+               (when atomic-chrome-debug
+                 (message "atomic chrome: keepalive")))
               ((string= .type "register")
                (atomic-chrome-create-buffer socket .payload.url .payload.title
                                             .payload.text
