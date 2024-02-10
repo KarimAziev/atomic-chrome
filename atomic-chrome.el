@@ -226,10 +226,11 @@ Argument FILE-EXTENSION is a string, list, or vector of strings."
   "Create buffer associated with websocket specified by SOCKET.
 URL is used to determine the major mode of the buffer created,
 TITLE is used for the buffer name and TEXT is inserted to the buffer."
-  (let* ((suffix (atomic-chrome-normalize-file-extension
-                  extension))
+  (let* ((suffix (atomic-chrome-normalize-file-extension extension))
          (file (make-temp-file (if (string-empty-p title)
-                                   "No title" title)
+                                   "no-title"
+                                 (replace-regexp-in-string
+                                  "[/]+" "-" title))
                                nil
                                suffix))
          (buffer (find-file-noselect file)))
