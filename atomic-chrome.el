@@ -404,7 +404,7 @@ Fails silently if a server is already running."
         (global-atomic-chrome-edit-mode 1))))
 
 ;;;###autoload
-(defun atomic-chrome-stop-server nil
+(defun atomic-chrome-stop-server ()
   "Stop websocket server for atomic-chrome."
   (interactive)
   (when atomic-chrome-server-atomic-chrome
