@@ -234,12 +234,11 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
                                suffix))
          (buffer (find-file-noselect file)))
     (with-current-buffer buffer
-      (let ((kill-buffer-query-functions nil))
-        (puthash buffer
-                 (list socket (atomic-chrome-show-edit-buffer buffer title))
-                 atomic-chrome-buffer-table)
-        (atomic-chrome-set-major-mode url)
-        (insert text)))))
+      (puthash buffer
+               (list socket (atomic-chrome-show-edit-buffer buffer title))
+               atomic-chrome-buffer-table)
+      (atomic-chrome-set-major-mode url)
+      (insert text))))
 
 (defun atomic-chrome-close-edit-buffer (buffer)
   "Close buffer BUFFER if it's one of Atomic Chrome edit buffers."
@@ -257,9 +256,8 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
 (defun atomic-chrome-close-current-buffer ()
   "Close current buffer and connection from client."
   (interactive)
-  (when (or (not (buffer-modified-p))
-            (yes-or-no-p "Buffer has not been saved, close anyway? "))
-    (atomic-chrome-close-edit-buffer (current-buffer))))
+  (save-buffer)
+  (atomic-chrome-close-edit-buffer (current-buffer)))
 
 (defun atomic-chrome-update-buffer (socket text)
   "Update text on buffer associated with SOCKET to TEXT."
@@ -304,6 +302,12 @@ FRAME holds the raw data received."
     map)
   "Keymap for minor mode `atomic-chrome-edit-mode'.")
 
+
+(defun atomic-chrome-unset-buffer-modified ()
+  "Mark buffer as unmodified and return true."
+  (set-buffer-modified-p nil)
+  t)
+
 (define-minor-mode atomic-chrome-edit-mode
   "Minor mode enabled on buffers opened by Emacs Atomic Chrome server."
   :group 'atomic-chrome
@@ -312,6 +316,8 @@ FRAME holds the raw data received."
   :keymap atomic-chrome-edit-mode-map
   (when atomic-chrome-edit-mode
     (add-hook 'kill-buffer-hook #'atomic-chrome-close-connection nil t)
+    (add-hook 'kill-buffer-query-functions
+              #'atomic-chrome-unset-buffer-modified nil t)
     (when atomic-chrome-enable-auto-update
       (add-hook 'post-command-hook #'atomic-chrome-send-buffer-text nil t))))
 
