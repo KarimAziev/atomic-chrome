@@ -1,10 +1,10 @@
-;;; atomic-chrome.el --- Edit Chrome text area with Emacs using Atomic Chrome -*- lexical-binding: t; -*-
+;;; atomic-chrome.el --- Edit Chrome text areas -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2016 alpha22jp <alpha22jp@gmail.com>
 
 ;; Author: alpha22jp <alpha22jp@gmail.com>
 ;; Package-Requires: ((emacs "24.4") (let-alist "1.0.6") (websocket "1.13"))
-;; Keywords: chrome edit textarea
+;; Keywords: browsers, editing, emacs, extensions, tools
 ;; URL: https://github.com/alpha22jp/atomic-chrome
 ;; Version: 2.0.0
 
