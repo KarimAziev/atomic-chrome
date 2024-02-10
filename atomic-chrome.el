@@ -320,6 +320,7 @@ FRAME holds the raw data received."
   (when (gethash (current-buffer) atomic-chrome-buffer-table)
     (atomic-chrome-edit-mode t)))
 
+;;;###autoload
 (define-global-minor-mode global-atomic-chrome-edit-mode
   atomic-chrome-edit-mode atomic-chrome-turn-on-edit-mode)
 
