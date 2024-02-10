@@ -417,8 +417,5 @@ Fails silently if a server is already running."
     (delete-process "atomic-chrome-httpd"))
   (global-atomic-chrome-edit-mode 0))
 
-
-
-;;; atomic-chrome.el ends here
 (provide 'atomic-chrome)
 ;;; atomic-chrome.el ends here
