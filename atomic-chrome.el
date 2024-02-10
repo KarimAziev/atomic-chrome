@@ -267,22 +267,63 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
         (erase-buffer)
         (insert text)))))
 
+(defun atomic-chrome--json-parse-string (str &optional object-type array-type
+                                             null-object false-object)
+  "Parse STR with natively compiled function or with json library.
+
+The argument OBJECT-TYPE specifies which Lisp type is used
+to represent objects; it can be `hash-table', `alist' or `plist'.  It
+defaults to `alist'.
+
+The argument ARRAY-TYPE specifies which Lisp type is used
+to represent arrays; `array'`vector' and `list'.
+
+The argument NULL-OBJECT specifies which object to use
+to represent a JSON null value.  It defaults to `:null'.
+
+The argument FALSE-OBJECT specifies which object to use to
+represent a JSON false value.  It defaults to `:false'."
+  (if (and (fboundp 'json-parse-string)
+           (fboundp 'json-available-p)
+           (json-available-p))
+      (json-parse-string str
+                         :object-type (or object-type 'alist)
+                         :array-type
+                         (pcase array-type
+                           ('list 'list)
+                           ('vector 'array)
+                           (_ 'array))
+                         :null-object (or null-object :null)
+                         :false-object (or false-object :false))
+    (require 'json)
+    (let ((json-object-type (or object-type 'alist))
+          (json-array-type
+           (pcase array-type
+             ('list 'list)
+             ('array 'vector)
+             (_ 'vector)))
+          (json-null (or null-object :null))
+          (json-false (or false-object :false)))
+      (json-read-from-string str))))
+
 (defun atomic-chrome-on-message (socket frame)
   "Handle data received from the websocket client specified by SOCKET.
 FRAME holds the raw data received."
-  (let ((payload (websocket-frame-payload frame))
-        (msg))
-    (setq msg (json-read-from-string
-               (decode-coding-string
-                (encode-coding-string payload 'utf-8)
-                'utf-8)))
+  (let* ((payload (decode-coding-string
+                   (encode-coding-string (websocket-frame-payload frame)
+                                         'utf-8)
+                   'utf-8))
+         (msg (atomic-chrome--json-parse-string
+               payload)))
     (let-alist msg
       (if (eq (websocket-server-conn socket) atomic-chrome-server-ghost-text)
           (if (atomic-chrome-get-buffer-by-socket socket)
               (atomic-chrome-update-buffer socket .text)
             (atomic-chrome-create-buffer socket .url .title .text
                                          .extension))
-        (cond ((string= .type "register")
+        (cond ((string= .type "keepalive")
+               (message "atomic chrome: keepalive"))
+              ((string= .type "register")
                (atomic-chrome-create-buffer socket .payload.url .payload.title
                                             .payload.text
                                             .payload.extension))
