@@ -225,18 +225,23 @@ frame, depending on `atomic-chrome-buffer-open-style'."
 Argument FILE-EXTENSION is a string, list, or vector of strings."
   (when (vectorp file-extension)
     (setq file-extension (append file-extension nil)))
-  (cond ((or (not file-extension)
-             (stringp file-extension))
-         file-extension)
-        ((length> file-extension 1)
-         (completing-read "File extension: "
-                          file-extension))
-        (t (car-safe file-extension))))
+  (when-let ((ext
+              (cond ((or (not file-extension)
+                         (stringp file-extension))
+                     file-extension)
+                    ((length> file-extension 1)
+                     (completing-read "File extension: "
+                                      file-extension))
+                    (t (car-safe file-extension)))))
+    (if (string-prefix-p "." ext)
+        ext
+      (concat "." ext))))
 
 (defun atomic-chrome-create-buffer (socket url title text &optional extension)
   "Create buffer associated with websocket specified by SOCKET.
 URL is used to determine the major mode of the buffer created,
 TITLE is used for the buffer name and TEXT is inserted to the buffer."
+  (unless extension (setq extension (file-name-extension url)))
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
          (file (make-temp-file (if (string-empty-p title)
                                    "no-title"
@@ -453,15 +458,15 @@ STRING is the string process received."
 Fails silently if a server is already running."
   (interactive)
   (ignore-errors
-      (progn
-        (and (not atomic-chrome-server-atomic-chrome)
-             (memq 'atomic-chrome atomic-chrome-extension-type-list)
-             (setq atomic-chrome-server-atomic-chrome
-                   (atomic-chrome-start-websocket-server 64292)))
-        (and (not (process-status "atomic-chrome-httpd"))
-             (memq 'ghost-text atomic-chrome-extension-type-list)
-             (atomic-chrome-start-httpd))
-        (global-atomic-chrome-edit-mode 1))))
+    (progn
+      (and (not atomic-chrome-server-atomic-chrome)
+           (memq 'atomic-chrome atomic-chrome-extension-type-list)
+           (setq atomic-chrome-server-atomic-chrome
+                 (atomic-chrome-start-websocket-server 64292)))
+      (and (not (process-status "atomic-chrome-httpd"))
+           (memq 'ghost-text atomic-chrome-extension-type-list)
+           (atomic-chrome-start-httpd))
+      (global-atomic-chrome-edit-mode 1))))
 
 ;;;###autoload
 (defun atomic-chrome-stop-server ()
@@ -476,6 +481,16 @@ Fails silently if a server is already running."
   (when (process-status "atomic-chrome-httpd")
     (delete-process "atomic-chrome-httpd"))
   (global-atomic-chrome-edit-mode 0))
+
+;;;###autoload
+(defun atomic-chrome-toggle-server ()
+  "Toggle the Atomic Chrome server between starting and stopping."
+  (interactive)
+  (if (or atomic-chrome-server-atomic-chrome
+          (process-status "atomic-chrome-httpd"))
+      (atomic-chrome-stop-server)
+    (atomic-chrome-start-server)))
+
 
 (provide 'atomic-chrome)
 ;;; atomic-chrome.el ends here
