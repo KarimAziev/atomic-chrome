@@ -50,10 +50,11 @@
   :prefix "atomic-chrome-"
   :group 'applications)
 
-(defcustom atomic-chrome-extension-type-list '(atomic-chrome ghost-text)
+(defcustom atomic-chrome-extension-type-list '(atomic-chrome)
   "List of browser extension type available."
-  :type '(repeat (choice (const :tag "Atomic Chrome" atomic-chrome)
-                         (const :tag "Ghost Text" ghost-text)))
+  :type '(repeat (choice
+                  (const :tag "Atomic Chrome" atomic-chrome)
+                  (const :tag "Ghost Text" ghost-text)))
   :group 'atomic-chrome)
 
 (defcustom atomic-chrome-buffer-open-style 'split
