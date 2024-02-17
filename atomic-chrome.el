@@ -189,10 +189,10 @@ The specified major mode is used if URL matches to one of the alist,
 otherwise fallback to `atomic-chrome-default-major-mode'"
   (let ((mode (assoc-default url atomic-chrome-url-major-mode-alist
                              'string-match)))
-    (cond (mode (funcall mode))
-          ((and buffer-file-name
+    (cond ((and buffer-file-name
                 (file-name-extension buffer-file-name))
            (set-auto-mode))
+          (mode (funcall mode))
           (t (funcall atomic-chrome-default-major-mode)))))
 
 (defun atomic-chrome-show-edit-buffer (buffer title)
