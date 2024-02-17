@@ -1,0 +1,148 @@
+#+OPTIONS: ^:nil tags:nil num:nil
+
+* About
+This package facilitates integration with [[https://github.com/KarimAziev/chrome-emacs][chrome-emacs]], a Chrome extension, to enable editing text areas in Chrome directly from Emacs.
+
+*Features*:
+
+- Instant and continuous synchronization of input between Emacs and the browser.
+- Bi-directional updates allowing simultaneous use of both browser and Emacs with synced content.
+
+[[./images/screencast.gif]]
+
+
+* Table of Contents                                       :TOC_2_gh:QUOTE:
+#+BEGIN_QUOTE
+- [[#about][About]]
+- [[#requirements][Requirements]]
+- [[#installation][Installation]]
+  - [[#install-chrome-extension][Install Chrome extension]]
+  - [[#with-use-package-and-straightel][With use-package and straight.el]]
+  - [[#manual-installation][Manual installation]]
+- [[#usage][Usage]]
+- [[#customization][Customization]]
+#+END_QUOTE
+
+* Requirements
+
+| Name         |                 Version |
+|--------------+-------------------------|
+| Emacs        |                    24.4 |
+| ~let-alist~  |                   1.0.6 |
+| ~websocket~  |                    1.13 |
+| [[https://github.com/KarimAziev/chrome-emacs][chrome-emacs]] | Google Chrome extension |
+
+
+* Installation
+** Install Chrome extension
+
+To edit text in Chrome using Emacs, start by setting up the [[https://github.com/KarimAziev/chrome-emacs][Chrome extension]] locally:
+
+1. Clone the repository to your local machine:
+
+   #+begin_example
+   git clone https://github.com/KarimAziev/chrome-emacs.git
+   #+end_example
+
+2. Ensure the correct version of Node.js is installed, as specified in the repository's =.nvmrc= file. If using NVM, switch to the correct version with =nvm use=.
+
+3. Install required dependencies:
+
+   #+begin_example
+   npm install
+   #+end_example
+
+4. Build the extension:
+
+   #+begin_example
+   npm run build
+   #+end_example
+
+5. Load the built =app= directory into Chrome:
+   - Navigate to =chrome://extensions/=
+   - Toggle "Developer mode" in the top right.
+   - Click "Load unpacked" and select the =app= directory.
+
+** With use-package and straight.el
+#+begin_src elisp :eval no
+(use-package atomic-chrome
+  :demand t
+  :straight (atomic-chrome
+             :repo "KarimAziev/atomic-chrome"
+             :type git
+             :host github)
+  :commands (atomic-chrome-start-server)
+  :config (atomic-chrome-start-server))
+#+end_src
+
+** Manual installation
+
+Download the source code and put it wherever you like, e.g. into =~/.emacs.d/atomic-chrome/=
+
+#+begin_src shell :eval no
+git clone https://github.com/KarimAziev/atomic-chrome.git ~/.emacs.d/atomic-chrome/
+#+end_src
+
+Add the downloaded directory to the load path:
+
+#+begin_src elisp :eval no
+(add-to-list 'load-path "~/.emacs.d/atomic-chrome/")
+(require 'atomic-chrome)
+(atomic-chrome-start-server)
+#+end_src
+
+* Usage
+
+Ensure that Emacs is running with the atomic-chrome package loaded, and the server is started (=atomic-chrome-start-server=).
+
+1. Focus on a textarea or a contenteditable element in Chrome.
+2. Activate Chrome Emacs. This can typically be done by clicking on the extension's icon or using a keyboard shortcut.
+
+The text will now open in an Emacs buffer, ready for you to edit.
+* Customization
+
+*** Set auto-update mode
+
+Atomic Chrome for Emacs automatically reflects modifications to the browser by default as described above, but you can disable it by setting the variable below.
+
+#+BEGIN_SRC emacs-lisp
+  (setq atomic-chrome-enable-auto-update nil)
+#+END_SRC
+
+In this case, you can apply the modifications to the browser with C-c C-s
+
+*** Set major mode for editing buffer
+
+The default major mode of editing buffer is =text-mode=. You can change the major mode manually. If you want to use a different major mode as the default, set =atomic-chrome-default-major-mode= like below.
+
+#+BEGIN_SRC emacs-lisp
+  (setq atomic-chrome-default-major-mode 'markdown-mode)
+#+END_SRC
+
+Additionally, you can use =atomic-chrome-url-major-mode-alist= to choose the major mode for a specific website based on the page URL (or, with GhostText, URL hostname) like below.
+
+#+BEGIN_SRC emacs-lisp
+  (setq atomic-chrome-url-major-mode-alist
+        '(("github\\.com" . gfm-mode)
+          ("redmine" . textile-mode)))
+#+END_SRC
+
+This is an association list of regexp and major mode function. If the page URL matches to on of the regexp, the corresponding major mode is selected.
+
+*** Select editing buffer style
+
+You can select the style of opening the editing buffer by =atomic-chrome-buffer-open-style= like below.
+
+#+BEGIN_SRC emacs-lisp
+  (setq atomic-chrome-buffer-open-style 'frame)
+#+END_SRC
+
+Available values are the followings.
+
+- =full=: Open in the selected window.
+- =split=: Open in the new window by splitting the selected window (default).
+- =frame=: Create a new frame and window in it.
+
+=frame= is available only when you are using Emacs on some window system.
+
+If you select =frame=, you can also set the width and height of the frame with =atomic-chrome-buffer-frame-width= and =atomic-chrome-buffer-frame-height=. Their default values are =80= and =25=.
