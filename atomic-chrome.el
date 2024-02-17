@@ -160,20 +160,27 @@ Looks in `atomic-chrome-buffer-table'."
       (remhash (current-buffer) atomic-chrome-buffer-table)
       (websocket-close socket))))
 
+(defun atomic-chrome-get-update-text-payload ()
+  "Extract text and cursor position from buffer."
+  (list (cons "lineNumber" (line-number-at-pos (point) t))
+        (cons "column" (1+ (current-column)))
+        (cons "text" (buffer-substring-no-properties
+                      (point-min)
+                      (point-max)))))
+
 (defun atomic-chrome-send-buffer-text ()
   "Send request to update text with current buffer content."
   (interactive)
   (let ((socket (atomic-chrome-get-websocket (current-buffer)))
-        (text (buffer-substring-no-properties (point-min)
-                                              (point-max))))
-    (when (and socket text)
+        (payload (atomic-chrome-get-update-text-payload)))
+    (when (and socket payload)
       (websocket-send-text
        socket
        (json-encode
         (if (eq (websocket-server-conn socket) atomic-chrome-server-ghost-text)
-            (list (cons "text" text))
+            payload
           (list '("type" . "updateText")
-                (cons "payload" (list (cons "text" text))))))))))
+                (cons "payload" payload))))))))
 
 (defun atomic-chrome-set-major-mode (url)
   "Set major mode for editing buffer depending on URL.
