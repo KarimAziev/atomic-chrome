@@ -232,7 +232,7 @@ frame, depending on `atomic-chrome-buffer-open-style'."
 
 Argument FILE-EXTENSION is a string, list, or vector of strings."
   (when (vectorp file-extension)
-    (setq file-extension (append file-extension nil)))
+    (setq file-extension (seq-find #'stringp (append file-extension nil))))
   (when-let ((ext
               (cond ((or (not file-extension)
                          (stringp file-extension))
@@ -245,7 +245,29 @@ Argument FILE-EXTENSION is a string, list, or vector of strings."
         ext
       (concat "." ext))))
 
-(defun atomic-chrome-create-buffer (socket url title text &optional extension)
+(defun atomic-chrome--goto-line (line)
+  "Move cursor to the specified LINE number.
+
+Argument LINE is the line number to go to."
+  (when line
+    (goto-char (point-min))
+    (forward-line (1- line))))
+
+
+
+(defun atomic-chrome--goto-position (line column)
+  "Move cursor to specified LINE and COLUMN.
+
+Argument LINE is the line number to go to.
+
+Argument COLUMN is the column number to go to."
+  (when line
+    (atomic-chrome--goto-line line))
+  (when column
+    (move-to-column (1- column))))
+
+(defun atomic-chrome-create-buffer (socket url title text &optional extension
+                                           line column)
   "Create buffer associated with websocket specified by SOCKET.
 URL is used to determine the major mode of the buffer created,
 TITLE is used for the buffer name and TEXT is inserted to the buffer."
@@ -263,7 +285,8 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
                (list socket (atomic-chrome-show-edit-buffer buffer title))
                atomic-chrome-buffer-table)
       (atomic-chrome-set-major-mode url)
-      (insert text))))
+      (insert text)
+      (atomic-chrome--goto-position line column))))
 
 (defun atomic-chrome-close-edit-buffer (buffer)
   "Close buffer BUFFER if it's one of Atomic Chrome edit buffers."
@@ -318,8 +341,8 @@ represent a JSON false value.  It defaults to `:false'."
                            ('list 'list)
                            ('vector 'array)
                            (_ 'array))
-                         :null-object (or null-object :null)
-                         :false-object (or false-object :false))
+                         :null-object nil
+                         :false-object nil)
     (require 'json)
     (let ((json-object-type (or object-type 'alist))
           (json-array-type
@@ -327,8 +350,8 @@ represent a JSON false value.  It defaults to `:false'."
              ('list 'list)
              ('array 'vector)
              (_ 'vector)))
-          (json-null (or null-object :null))
-          (json-false (or false-object :false)))
+          (json-null (or null-object nil))
+          (json-false (or false-object nil)))
       (json-read-from-string str))))
 
 (defun atomic-chrome-on-message (socket frame)
@@ -341,7 +364,8 @@ FRAME holds the raw data received."
          (msg (atomic-chrome--json-parse-string
                payload)))
     (let-alist msg
-      (if (eq (websocket-server-conn socket) atomic-chrome-server-ghost-text)
+      (if (eq (websocket-server-conn socket)
+              atomic-chrome-server-ghost-text)
           (if (atomic-chrome-get-buffer-by-socket socket)
               (atomic-chrome-update-buffer socket .text)
             (atomic-chrome-create-buffer socket .url .title .text
@@ -352,7 +376,9 @@ FRAME holds the raw data received."
               ((string= .type "register")
                (atomic-chrome-create-buffer socket .payload.url .payload.title
                                             .payload.text
-                                            .payload.extension))
+                                            .payload.extension
+                                            .payload.lineNumber
+                                            .payload.column))
               ((string= .type "updateText")
                (when atomic-chrome-enable-bidirectional-edit
                  (atomic-chrome-update-buffer socket .payload.text))))))))
