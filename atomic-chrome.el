@@ -1,11 +1,13 @@
 ;;; atomic-chrome.el --- Edit Chrome text areas -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2016 alpha22jp <alpha22jp@gmail.com>
+;;           (C) 2024 Karim Aziiev <karim.aziiev@gmail.com>
 
 ;; Author: alpha22jp <alpha22jp@gmail.com>
+;;         Karim Aziiev <karim.aziiev@gmail.com>
 ;; Package-Requires: ((emacs "24.4") (let-alist "1.0.6") (websocket "1.13"))
 ;; Keywords: browsers, editing, emacs, extensions, tools
-;; URL: https://github.com/alpha22jp/atomic-chrome
+;; URL: https://github.com/KarimAziev/atomic-chrome
 ;; Version: 2.0.0
 
 ;; This program is free software; you can redistribute it and/or modify it under
