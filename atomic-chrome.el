@@ -203,7 +203,9 @@ frame, depending on `atomic-chrome-buffer-open-style'."
   (let ((edit-frame nil)
         (frame-params (list (cons 'name (format "Atomic Chrome: %s" title))
                             (cons 'width atomic-chrome-buffer-frame-width)
-                            (cons 'height atomic-chrome-buffer-frame-height))))
+                            (cons 'height atomic-chrome-buffer-frame-height)
+                            (cons 'fullscreen nil)
+                            (cons 'fullboth nil))))
     (when (eq atomic-chrome-buffer-open-style 'frame)
       (setq edit-frame
             (cond
