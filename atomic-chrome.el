@@ -309,13 +309,25 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
   (save-buffer)
   (atomic-chrome-close-edit-buffer (current-buffer)))
 
-(defun atomic-chrome-update-buffer (socket text)
-  "Update text on buffer associated with SOCKET to TEXT."
+(defun atomic-chrome-update-buffer (socket text &optional line column)
+  "Replace buffer content with TEXT at LINE and COLUMN.
+
+Argument SOCKET is the websocket connection associated with the buffer to
+update.
+
+Argument TEXT is the string to insert into the buffer.
+
+Optional argument LINE is the line number where the cursor should be placed
+after the update.
+
+Optional argument COLUMN is the column number where the cursor should be placed
+after the update."
   (let ((buffer (atomic-chrome-get-buffer-by-socket socket)))
     (when buffer
       (with-current-buffer buffer
         (erase-buffer)
-        (insert text)))))
+        (insert text)
+        (atomic-chrome--goto-position line column)))))
 
 (defun atomic-chrome--json-parse-string (str &optional object-type array-type
                                              null-object false-object)
@@ -383,7 +395,9 @@ FRAME holds the raw data received."
                                             .payload.column))
               ((string= .type "updateText")
                (when atomic-chrome-enable-bidirectional-edit
-                 (atomic-chrome-update-buffer socket .payload.text))))))))
+                 (atomic-chrome-update-buffer socket .payload.text
+                                              .payload.lineNumber
+                                              .payload.column))))))))
 
 (defun atomic-chrome-on-close (socket)
   "Function to handle request from client to close websocket SOCKET."
