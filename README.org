@@ -1,12 +1,34 @@
 #+OPTIONS: ^:nil tags:nil num:nil
 
 * About
-This package facilitates integration with [[https://github.com/KarimAziev/chrome-emacs][chrome-emacs]], a Chrome extension, to enable editing text areas in Chrome directly from Emacs.
 
-*Features*:
+[[./images/icon.png]]
 
-- Instant and continuous synchronization of input between Emacs and the browser.
-- Bi-directional updates allowing simultaneous use of both browser and Emacs with synced content.
+
+This fork of =atomic-chrome.el= introduces several enhancements over the original package, specifically designed to facilitate integration with the [[https://github.com/KarimAziev/chrome-emacs][chrome-emacs]] browser extension.
+
+While the original =atomic-chrome.el= package is compatible with the extension, not all features introduced in this fork are available in the original. This includes the enhanced text update payload for accurate cursor positioning and improved file extension handling.
+
+The [[https://github.com/KarimAziev/chrome-emacs][chrome-emacs]] extension itself was inspired by the need for a more efficient live-coding experience during online interviews. Unlike other solutions, it focuses not only on editing text areas but also on providing a seamless live-code experience in online editors.
+
+** Online Editors Support
+
+Chrome Emacs works with several widely-used online editors, including:
+
+- ☒ [[https://codepen.io/][codepen.io]]
+- ☒ [[https://stackblitz.com/][stackblitz.com]]
+- ☒ [[https://jsfiddle.net/][jsfiddle.net]]
+- ☒ [[https://leetcode.com/][leetcode.com]]
+- ☒ [[https://www.hackerrank.com/][hackerrank.com]]
+- ☒ [[https://repl.it/][repl.it]]
+- ☒ [[https://glitch.com/][glitch.com]]
+- ☒ [[https://plnkr.co/][plnkr.co]]
+- ☐ [[https://codesandbox.io/][codesandbox.io]] (Currently unsupported due to a lack of Monaco API exposure).
+
+#+CAPTION: Demo
+[[./images/chrome-emacs.gif][./images/chrome-emacs.gif]]
+
+
 
 [[./images/screencast.gif]]
 
@@ -14,12 +36,14 @@ This package facilitates integration with [[https://github.com/KarimAziev/chrome
 * Table of Contents                                       :TOC_2_gh:QUOTE:
 #+BEGIN_QUOTE
 - [[#about][About]]
+  - [[#online-editors-support][Online Editors Support]]
 - [[#requirements][Requirements]]
 - [[#installation][Installation]]
   - [[#install-chrome-extension][Install Chrome extension]]
   - [[#with-use-package-and-straightel][With use-package and straight.el]]
   - [[#manual-installation][Manual installation]]
 - [[#usage][Usage]]
+  - [[#how-to-bind-a-shortcut][How to Bind a Shortcut?]]
 - [[#customization][Customization]]
 #+END_QUOTE
 
@@ -34,34 +58,9 @@ This package facilitates integration with [[https://github.com/KarimAziev/chrome
 
 
 * Installation
+
 ** Install Chrome extension
-
-To edit text in Chrome using Emacs, start by setting up the [[https://github.com/KarimAziev/chrome-emacs][Chrome extension]] locally:
-
-1. Clone the repository to your local machine:
-
-   #+begin_example
-   git clone https://github.com/KarimAziev/chrome-emacs.git
-   #+end_example
-
-2. Ensure the correct version of Node.js is installed, as specified in the repository's =.nvmrc= file. If using NVM, switch to the correct version with =nvm use=.
-
-3. Install required dependencies:
-
-   #+begin_example
-   npm install
-   #+end_example
-
-4. Build the extension:
-
-   #+begin_example
-   npm run build
-   #+end_example
-
-5. Load the built =app= directory into Chrome:
-   - Navigate to =chrome://extensions/=
-   - Toggle "Developer mode" in the top right.
-   - Click "Load unpacked" and select the =app= directory.
+Install the [[https://chromewebstore.google.com/detail/chrome-emacs/dabdpcafiblbndpoadckibiaojbdnpjg][Chrome extension]].
 
 ** With use-package and straight.el
 #+begin_src elisp :eval no
@@ -93,12 +92,30 @@ Add the downloaded directory to the load path:
 
 * Usage
 
-Ensure that Emacs is running with the atomic-chrome package loaded, and the server is started (=atomic-chrome-start-server=).
+Ensure that Emacs is running with the [[https://github.com/KarimAziev/atomic-chrome][atomic-chrome fork]] (or [[https://github.com/alpha22jp/atomic-chrome][original atomic-chrome]]) loaded and the server is running (=M-x atomic-chrome-start-server=).
 
-1. Focus on a textarea or a contenteditable element in Chrome.
+1. Focus on or select from detected editable text areas, text editors, or contenteditable elements in Chrome.
+
+#+CAPTION: Hints
+[[./images/hints.png][./images/hints.png]]
+
 2. Activate Chrome Emacs. This can typically be done by clicking on the extension's icon or using a keyboard shortcut.
 
 The text will now open in an Emacs buffer, ready for you to edit.
+
+** How to Bind a Shortcut?
+
+#+CAPTION: Shortcuts
+[[./images/shortcuts.png][./images/shortcuts.png]]
+
+1. Navigate to =chrome://extensions=.
+2. Scroll down and click on =Keyboard shortcuts= at the bottom of the page.
+3. Assign a shortcut for activating Chrome Emacs. There are two available commands:
+
+- *Activate the extension* - default action, edit focused area. If there are no focused are, try to detect them from visible part of the page.
+- *Select and edit element* - Show key to press near editable elements to focus and start editing. To cancel, press either =ESC= or =Ctrl-g=.
+
+
 * Customization
 
 *** Set auto-update mode
@@ -111,15 +128,16 @@ Atomic Chrome for Emacs automatically reflects modifications to the browser by d
 
 In this case, you can apply the modifications to the browser with C-c C-s
 
-*** Set major mode for editing buffer
+*** Set Fallback Major Mode for Editing Buffer
 
-The default major mode of editing buffer is =text-mode=. You can change the major mode manually. If you want to use a different major mode as the default, set =atomic-chrome-default-major-mode= like below.
+The default major mode of an editing buffer is set automatically if it can be determined from the file extension or URL extension. If not, it will fall back to the mode specified in the custom variable =atomic-chrome-default-major-mode=. 
+You can change the major mode manually. If you want to use a different major mode as the default, set =atomic-chrome-default-major-mode= as shown below.
 
 #+BEGIN_SRC emacs-lisp
   (setq atomic-chrome-default-major-mode 'markdown-mode)
 #+END_SRC
 
-Additionally, you can use =atomic-chrome-url-major-mode-alist= to choose the major mode for a specific website based on the page URL (or, with GhostText, URL hostname) like below.
+Additionally, you can use =atomic-chrome-url-major-mode-alist= to choose the major mode for a specific website based on the page URL as shown below.
 
 #+BEGIN_SRC emacs-lisp
   (setq atomic-chrome-url-major-mode-alist
@@ -127,7 +145,13 @@ Additionally, you can use =atomic-chrome-url-major-mode-alist= to choose the maj
           ("redmine" . textile-mode)))
 #+END_SRC
 
-This is an association list of regexp and major mode function. If the page URL matches to on of the regexp, the corresponding major mode is selected.
+This is an association list of regular expressions and major mode functions. If the page URL matches one of the regular expressions, the corresponding major mode is selected.
+
+#+begin_quote
+[!NOTE]
+
+Detected mode will take precedence over =atomic-chrome-url-major-mode-alist= and =atomic-chrome-default-major-mode= , which will be used only if the mode cannot be determined automatically.
+#+end_quote
 
 *** Select editing buffer style
 
