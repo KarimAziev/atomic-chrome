@@ -268,6 +268,7 @@ Argument COLUMN is the column number to go to."
   (when column
     (move-to-column (1- column))))
 
+
 (defun atomic-chrome-create-buffer (socket url title text &optional extension
                                            line column)
   "Create buffer associated with websocket specified by SOCKET.
@@ -278,7 +279,7 @@ TITLE is used for the buffer name and TEXT is inserted to the buffer."
          (file (make-temp-file (if (string-empty-p title)
                                    "no-title"
                                  (replace-regexp-in-string
-                                  "[/]+" "-" title))
+                                  "[/\s]+" "-" title))
                                nil
                                suffix))
          (buffer (find-file-noselect file)))
