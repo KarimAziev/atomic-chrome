@@ -5,7 +5,7 @@
 
 ;; Author: alpha22jp <alpha22jp@gmail.com>
 ;;         Karim Aziiev <karim.aziiev@gmail.com>
-;; Package-Requires: ((emacs "24.4") (let-alist "1.0.6") (websocket "1.13"))
+;; Package-Requires: ((emacs "25.1") (let-alist "1.0.6") (websocket "1.13"))
 ;; Keywords: browsers, editing, emacs, extensions, tools
 ;; URL: https://github.com/KarimAziev/atomic-chrome
 ;; Version: 2.0.0
@@ -273,9 +273,25 @@ Argument COLUMN is the column number to go to."
 
 (defun atomic-chrome-create-buffer (socket url title text &optional extension
                                            line column)
-  "Create buffer associated with websocket specified by SOCKET.
-URL is used to determine the major mode of the buffer created,
-TITLE is used for the buffer name and TEXT is inserted to the buffer."
+  "Create and prepare a buffer for editing with given TEXT and URL metadata.
+
+Argument SOCKET is an object representing the WebSocket connection.
+
+Argument URL is a string representing the url of the page being edited.
+
+Argument TITLE is a string representing the title of the page being edited.
+
+Argument TEXT is a string containing the initial text to be inserted into the
+buffer.
+
+Optional argument EXTENSION is a string specifying the file extension for the
+temporary file. It defaults to the EXTENSION derived from URL.
+
+Optional argument LINE is an integer specifying the line number to position the
+cursor at.
+
+Optional argument COLUMN is an integer specifying the column number to position
+the cursor at."
   (unless extension (setq extension (file-name-extension url)))
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
          (file (make-temp-file (if (string-empty-p title)
