@@ -67,14 +67,82 @@
   :group 'atomic-chrome)
 
 (defcustom atomic-chrome-buffer-frame-width 80
-  "Width of editing buffer frame."
+  "Default width of frames for Atomic Chrome editing sessions.
+
+Specifies the width of the frame created for Atomic Chrome editing sessions.
+
+The value is an integer representing the number of characters that can fit in
+the width of the frame.
+
+This width setting applies only when a new frame is created for an Atomic Chrome
+session, contingent on `atomic-chrome-buffer-open-style' being set to create a
+new frame.
+
+This width setting is applied only if the frame creation is triggered by Atomic
+Chrome and the `atomic-chrome-buffer-open-style' is set to create a new frame.
+
+Note: This setting overrides `atomic-chrome-frame-parameters'."
   :type 'integer
   :group 'atomic-chrome)
 
-(defcustom atomic-chrome-buffer-frame-height 25
-  "Height of editing buffer frame."
+(defcustom atomic-chrome-buffer-frame-height 52
+  "Height of the frame for Atomic Chrome editing sessions, in lines.
+
+Specifies the height of the frame created for Atomic Chrome editing sessions.
+
+Specifies the number of lines in the frame, used when opening a new frame for
+editing text areas in a web browser via Atomic Chrome.
+
+This setting is effective only when the value of
+`atomic-chrome-buffer-open-style' is set to create a new frame for editing.
+
+Note: This setting overrides `atomic-chrome-frame-parameters'."
   :type 'integer
   :group 'atomic-chrome)
+
+(defcustom atomic-chrome-frame-parameters '((alpha-background . 90)
+                                            (fullscreen . nil)
+                                            (fullboth . nil))
+  "Parameters for frames created by Atomic Chrome editing sessions.
+
+Each list element is a cons cell `(PARAMETER . VALUE)`, where `PARAMETER` is the
+frame parameter symbol, and `VALUE` is its corresponding setting.
+
+Note: Settings in `atomic-chrome-frame-parameters' are default values for new
+frames and may be overridden by specific settings in
+`atomic-chrome-buffer-frame-width' and `atomic-chrome-buffer-frame-height' for
+width and height, respectively.
+
+Furthermore, when the Atomic Chrome client includes a `rect' with pixel
+dimensions and positions, the `left' and `top' positions of the frame may be
+automatically calculated and adjusted to align with a text area in a web
+browser, unless `left' and `top' are explicitly specified here, which would
+disable automatic calculation in favor of the user-defined positions.
+
+This setting is effective only when the value of
+`atomic-chrome-buffer-open-style' is set to create a new frame for editing."
+  :group 'atomic-chrome
+  :type '(repeat (cons :format "%v"
+                  (symbol :tag "Parameter")
+                  (sexp :tag "Value"))))
+
+(defcustom atomic-chrome-max-text-size-for-position-sync 5000000
+  "Maximum text size for syncing cursor position.
+
+Specifies the maximum size of text (in characters) for which cursor position
+synchronization is attempted when editing with Atomic Chrome.
+
+If the size of the text being edited exceeds this limit, cursor position
+information (line and column) will not be included in the data sent to the
+browser extension. This is to prevent performance issues with large texts.
+
+The default value is 5000000, which should be sufficient for most editing tasks.
+Adjusting this value may be necessary for working with very large files or to
+improve performance on slower systems.
+
+This value should be an integer."
+  :group 'atomic-chrome
+  :type 'natnum)
 
 (defcustom atomic-chrome-server-ghost-text-port 4001
   "HTTP server port for Ghost Text."
@@ -163,13 +231,31 @@ Looks in `atomic-chrome-buffer-table'."
       (remhash (current-buffer) atomic-chrome-buffer-table)
       (websocket-close socket))))
 
+(defun atomic-chrome-get-selections ()
+  "Return the start and end points of the current selection or cursor position."
+  (pcase-let ((`(,start . ,end)
+               (if (and (use-region-p)
+                        (region-active-p))
+                   (cons (region-beginning)
+                         (region-end))
+                 (cons (point)
+                       (point)))))
+    `[((start . ,(1- start))
+       (end . ,(1- end)))]))
+
 (defun atomic-chrome-get-update-text-payload ()
-  "Extract text and cursor position from buffer."
-  (list (cons "lineNumber" (line-number-at-pos (point) t))
-        (cons "column" (1+ (current-column)))
-        (cons "text" (buffer-substring-no-properties
-                      (point-min)
-                      (point-max)))))
+  "Generate payload with text and optionally cursor position from buffer."
+  (let ((data (list (cons "text" (buffer-substring-no-properties
+                                  (point-min)
+                                  (point-max)))
+                    (cons "selections" (atomic-chrome-get-selections)))))
+    (if (> (buffer-size) atomic-chrome-max-text-size-for-position-sync)
+        data
+      (append data
+              (list (cons "lineNumber" (line-number-at-pos (point) t))
+                    (cons "column" (1+ (length (buffer-substring-no-properties
+                                                (line-beginning-position)
+                                                (point))))))))))
 
 (defun atomic-chrome-send-buffer-text ()
   "Send request to update text with current buffer content."
@@ -198,30 +284,59 @@ otherwise fallback to `atomic-chrome-default-major-mode'"
           (mode (funcall mode))
           (t (funcall atomic-chrome-default-major-mode)))))
 
-(defun atomic-chrome-show-edit-buffer (buffer title)
-  "Show editing buffer BUFFER.
-Either creates a frame with title TITLE, or raises the selected
-frame, depending on `atomic-chrome-buffer-open-style'."
-  (let ((edit-frame nil)
-        (frame-params (list (cons 'name (format "Atomic Chrome: %s" title))
-                            (cons 'width atomic-chrome-buffer-frame-width)
-                            (cons 'height atomic-chrome-buffer-frame-height)
-                            (cons 'fullscreen nil)
-                            (cons 'fullboth nil))))
-    (when (eq atomic-chrome-buffer-open-style 'frame)
-      (setq edit-frame
-            (cond
-             ((memq window-system '(pgtk x))
-              (if (or (not x-display-name) (string-match-p "wayland" x-display-name))
-                  (make-frame frame-params)
-                (make-frame-on-display (getenv "DISPLAY") frame-params)))
-             ;; Avoid using make-frame-on-display for Mac OS
-             ((memq window-system '(ns mac))
-              (make-frame frame-params))
-             ((memq window-system '(w32))
-              (make-frame-on-display "w32" frame-params))
-             (t
-              (make-frame frame-params))))
+(defun atomic-chrome--make-frame (title &optional rect)
+  "Create a new frame for Atomic Chrome with specified parameters.
+
+Argument TITLE is a string representing the title of the frame.
+
+Optional argument RECT is an alist containing pixel dimensions and positions for
+the frame.
+
+If RECT is provided, the left and top position of the frame may be calculated
+automatically, allowing the frame to open in alignment with specific elements on
+the client side, such as a text area in a web browser. This is useful for
+positioning the frame near the area being edited."
+  (let ((rect-params (and rect (atomic-chrome-normalize-rect rect)))
+        (frame-params (delq nil
+                            (append
+                             (list (cons 'width
+                                         atomic-chrome-buffer-frame-width))
+                             (list (cons 'height
+                                         atomic-chrome-buffer-frame-height))
+                             atomic-chrome-frame-parameters
+                             (list (cons 'name (format "Atomic Chrome: %s"
+                                                       title)))))))
+    (when rect-params
+      (setq frame-params (append frame-params rect-params)))
+    (when (and (or (assq 'left frame-params)
+                   (assq 'top frame-params)))
+      (when (not (cdr (assq 'user-position frame-params)))
+        (push '(user-position . t) frame-params)))
+    (cond ((memq window-system '(pgtk x))
+           (if (or (not x-display-name)
+                   (string-match-p "wayland" x-display-name))
+               (make-frame frame-params)
+             (make-frame-on-display (getenv "DISPLAY") frame-params)))
+          ;; Avoid using make-frame-on-display for Mac OS
+          ((memq window-system '(ns mac))
+           (make-frame frame-params))
+          ((memq window-system '(w32))
+           (make-frame-on-display "w32" frame-params))
+          (t
+           (make-frame frame-params)))))
+
+(defun atomic-chrome-show-edit-buffer (buffer title &optional rect)
+  "Open or switch to an edit BUFFER with specified dimensions and title.
+
+Argument BUFFER is the buffer to display in the editing window or frame.
+
+Argument TITLE is the title for the editing window or frame.
+
+Optional argument RECT is an alist containing pixel dimensions and positions for
+the editing frame."
+  (let ((edit-frame (and (eq atomic-chrome-buffer-open-style 'frame)
+                         (atomic-chrome--make-frame title rect))))
+    (when edit-frame
       (select-frame edit-frame))
     (if (eq atomic-chrome-buffer-open-style 'split)
         (pop-to-buffer buffer)
@@ -257,8 +372,6 @@ Argument LINE is the line number to go to."
     (goto-char (point-min))
     (forward-line (1- line))))
 
-
-
 (defun atomic-chrome--goto-position (line column)
   "Move cursor to specified LINE and COLUMN.
 
@@ -272,7 +385,7 @@ Argument COLUMN is the column number to go to."
 
 
 (defun atomic-chrome-create-buffer (socket url title text &optional extension
-                                           line column)
+                                           line column rect)
   "Create and prepare a buffer for editing with given TEXT and URL metadata.
 
 Argument SOCKET is an object representing the WebSocket connection.
@@ -303,7 +416,9 @@ the cursor at."
          (buffer (find-file-noselect file)))
     (with-current-buffer buffer
       (puthash buffer
-               (list socket (atomic-chrome-show-edit-buffer buffer title))
+               (list socket (atomic-chrome-show-edit-buffer
+                             buffer title
+                             rect))
                atomic-chrome-buffer-table)
       (atomic-chrome-set-major-mode url)
       (insert text)
@@ -387,36 +502,108 @@ represent a JSON false value.  It defaults to `:false'."
           (json-false (or false-object nil)))
       (json-read-from-string str))))
 
+(defun atomic-chrome--calculate-frame-left-position (rect)
+  "Calculate left position for an frame based on screen and window dimensions.
+
+Argument RECT is an alist containing `left', and `right' with
+their respective numeric values in pixels."
+  (let* ((screen-width (display-pixel-width))
+         (emacs-pix-width
+          (* atomic-chrome-buffer-frame-width (frame-char-width)))
+         (left-space (alist-get 'left rect))
+         (right-space (- screen-width (alist-get 'right rect)))
+         (emacs-frame-pos nil))
+    (if (>= (+ left-space right-space) emacs-pix-width)
+        ;; We have enough space to place Emacs frame without covering the text area
+        (if (> left-space right-space)
+            ;; Place to the left
+            (setq emacs-frame-pos (- left-space emacs-pix-width))
+          ;; Place to the right
+          (setq emacs-frame-pos (alist-get 'right rect)))
+      ;; Not enough space, cover text area starting from its right or left side
+      (if (< emacs-pix-width screen-width)
+          (if (> left-space right-space)
+              ;; Place to the left, covering the area partially or entirely
+              (setq emacs-frame-pos (- left-space emacs-pix-width))
+            ;; Place to the right, covering the area partially or entirely
+            (setq emacs-frame-pos (alist-get 'left rect)))
+        ;; Screen is too small, cover the text area completely
+        (setq emacs-frame-pos (alist-get 'left rect))))
+    emacs-frame-pos))
+    
+(defun atomic-chrome-normalize-rect (rect)
+  "Normalize pixel dimensions to character dimensions in RECT.
+
+Argument RECT is an alist containing pixel dimensions and positions."
+  (let ((char-width (frame-char-width))
+        (char-height  (frame-char-height))
+        (pix-width (alist-get 'width rect))
+        (pix-height (alist-get 'height rect))
+        (left)
+        (height)
+        (width))
+    (setq height (min
+                  (* 2 (/ pix-height char-height))
+                  (display-pixel-height)))
+    (setq width (/ pix-width char-width))
+    (setq left (atomic-chrome--calculate-frame-left-position
+                rect))
+    (list (cons 'width width)
+          (cons 'height height)
+          (cons 'left left)
+          (cons 'top (alist-get 'top rect)))))
+
+(defvar atomic-chrome-frame-socket-incomplete-payload-hash (make-hash-table
+                                                            :test 'eq)
+  "Hash table of sockets and its incomplete frames.")
+
 (defun atomic-chrome-on-message (socket frame)
   "Handle data received from the websocket client specified by SOCKET.
 FRAME holds the raw data received."
-  (let* ((payload (decode-coding-string
-                   (encode-coding-string (websocket-frame-payload frame)
-                                         'utf-8)
-                   'utf-8))
-         (msg (atomic-chrome--json-parse-string
-               payload)))
-    (let-alist msg
-      (if (eq (websocket-server-conn socket)
-              atomic-chrome-server-ghost-text)
-          (if (atomic-chrome-get-buffer-by-socket socket)
-              (atomic-chrome-update-buffer socket .text)
-            (atomic-chrome-create-buffer socket .url .title .text
-                                         .extension))
-        (cond ((string= .type "keepalive")
-               (when atomic-chrome-debug
-                 (message "atomic chrome: keepalive")))
-              ((string= .type "register")
-               (atomic-chrome-create-buffer socket .payload.url .payload.title
-                                            .payload.text
-                                            .payload.extension
-                                            .payload.lineNumber
-                                            .payload.column))
-              ((string= .type "updateText")
-               (when atomic-chrome-enable-bidirectional-edit
-                 (atomic-chrome-update-buffer socket .payload.text
-                                              .payload.lineNumber
-                                              .payload.column))))))))
+  (let ((raw-payload (websocket-frame-payload frame))
+        (incomplete-payloads (gethash socket
+                                      atomic-chrome-frame-socket-incomplete-payload-hash)))
+    (cond ((not (websocket-frame-completep frame))
+           (puthash socket (append incomplete-payloads
+                                   (list raw-payload))
+                    atomic-chrome-frame-socket-incomplete-payload-hash))
+          (t
+           (let* ((combined-payload (if incomplete-payloads
+                                        (concat (string-join incomplete-payloads
+                                                             "")
+                                                raw-payload)
+                                      raw-payload))
+                  (payload (decode-coding-string
+                            (encode-coding-string
+                             combined-payload
+                             'utf-8)
+                            'utf-8))
+                  (msg (atomic-chrome--json-parse-string
+                        payload)))
+             (remhash socket atomic-chrome-frame-socket-incomplete-payload-hash)
+             (let-alist msg
+               (if (eq (websocket-server-conn socket)
+                       atomic-chrome-server-ghost-text)
+                   (if (atomic-chrome-get-buffer-by-socket socket)
+                       (atomic-chrome-update-buffer socket .text)
+                     (atomic-chrome-create-buffer socket .url .title .text
+                                                  .extension))
+                 (cond ((string= .type "keepalive")
+                        (when atomic-chrome-debug
+                          (message "atomic chrome: keepalive")))
+                       ((string= .type "register")
+                        (atomic-chrome-create-buffer socket .payload.url
+                                                     .payload.title
+                                                     .payload.text
+                                                     .payload.extension
+                                                     .payload.lineNumber
+                                                     .payload.column
+                                                     .payload.rect))
+                       ((string= .type "updateText")
+                        (when atomic-chrome-enable-bidirectional-edit
+                          (atomic-chrome-update-buffer socket .payload.text
+                                                       .payload.lineNumber
+                                                       .payload.column)))))))))))
 
 (defun atomic-chrome-on-close (socket)
   "Function to handle request from client to close websocket SOCKET."
