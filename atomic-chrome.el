@@ -52,7 +52,7 @@
   :prefix "atomic-chrome-"
   :group 'applications)
 
-(defcustom atomic-chrome-extension-type-list '(atomic-chrome)
+(defcustom atomic-chrome-extension-type-list '(atomic-chrome ghost-text)
   "List of browser extension type available."
   :type '(repeat (choice
                   (const :tag "Atomic Chrome" atomic-chrome)
@@ -233,15 +233,35 @@ Looks in `atomic-chrome-buffer-table'."
 
 (defun atomic-chrome-get-selections ()
   "Return the start and end points of the current selection or cursor position."
-  (pcase-let ((`(,start . ,end)
-               (if (and (use-region-p)
-                        (region-active-p))
-                   (cons (region-beginning)
-                         (region-end))
-                 (cons (point)
-                       (point)))))
-    `[((start . ,(1- start))
-       (end . ,(1- end)))]))
+  (pcase-let* ((multi-poses (and (bound-and-true-p iedit-mode)
+                                 (boundp 'iedit-occurrences-overlays)
+                                 (mapcar
+                                  (lambda (ov)
+                                    (cons (overlay-start ov)
+                                          (overlay-end ov)))
+                                  iedit-occurrences-overlays)))
+               (primary-selection (if (and (use-region-p)
+                                           (region-active-p))
+                                      (cons (region-beginning)
+                                            (region-end))
+                                    (let* ((pos (point))
+                                           (ov-selection (seq-find
+                                                          (pcase-lambda
+                                                            (`(,b
+                                                               .
+                                                               ,e))
+                                                            (<= b pos e))
+                                                          multi-poses)))
+                                      (or ov-selection
+                                          (cons pos pos))))))
+    `[,@(mapcar
+         (lambda (ov)
+           `((start . ,(1- (car ov)))
+             (end . ,(1- (cdr ov)))))
+         (if multi-poses
+             (delete-dups (append (list primary-selection)
+                           multi-poses))
+           (list primary-selection)))]))
 
 (defun atomic-chrome-get-update-text-payload ()
   "Generate payload with text and optionally cursor position from buffer."
@@ -257,9 +277,9 @@ Looks in `atomic-chrome-buffer-table'."
                                                 (line-beginning-position)
                                                 (point))))))))))
 
-(defun atomic-chrome-send-buffer-text ()
+
+(defun atomic-chrome--send-buffer-text ()
   "Send request to update text with current buffer content."
-  (interactive)
   (let ((socket (atomic-chrome-get-websocket (current-buffer)))
         (payload (atomic-chrome-get-update-text-payload)))
     (when (and socket payload)
@@ -270,6 +290,11 @@ Looks in `atomic-chrome-buffer-table'."
             payload
           (list '("type" . "updateText")
                 (cons "payload" payload))))))))
+
+(defun atomic-chrome-send-buffer-text ()
+  "Send request to update text with the current buffer content."
+  (interactive)
+  (atomic-chrome--send-buffer-text))
 
 (defun atomic-chrome-set-major-mode (url)
   "Set major mode for editing buffer depending on URL.
@@ -283,6 +308,14 @@ otherwise fallback to `atomic-chrome-default-major-mode'"
            (set-auto-mode))
           (mode (funcall mode))
           (t (funcall atomic-chrome-default-major-mode)))))
+
+(defun atomic-chrome--safe-substring (str max-width)
+  "Extract a substring from STR up to MAX-WIDTH characters.
+
+Argument STR is the string from which a substring is extracted.
+
+Argument MAX-WIDTH is the maximum length of the substring to extract."
+  (substring str 0 (min (length str) max-width)))
 
 (defun atomic-chrome--make-frame (title &optional rect)
   "Create a new frame for Atomic Chrome with specified parameters.
@@ -305,7 +338,9 @@ positioning the frame near the area being edited."
                                          atomic-chrome-buffer-frame-height))
                              atomic-chrome-frame-parameters
                              (list (cons 'name (format "Atomic Chrome: %s"
-                                                       title)))))))
+                                                       (atomic-chrome--safe-substring
+                                                        title
+                                                        90))))))))
     (when rect-params
       (setq frame-params (append frame-params rect-params)))
     (when (and (or (assq 'left frame-params)
@@ -409,8 +444,10 @@ the cursor at."
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
          (file (make-temp-file (if (string-empty-p title)
                                    "no-title"
-                                 (replace-regexp-in-string
-                                  "[/\s]+" "-" title))
+                                 (replace-regexp-in-string "^[-]+\\|[-][-]" ""
+                                                           (replace-regexp-in-string
+                                                            "[^a-z0-9._-]+" "-"
+                                                            title)))
                                nil
                                suffix))
          (buffer (find-file-noselect file)))
@@ -561,8 +598,9 @@ Argument RECT is an alist containing pixel dimensions and positions."
   "Handle data received from the websocket client specified by SOCKET.
 FRAME holds the raw data received."
   (let ((raw-payload (websocket-frame-payload frame))
-        (incomplete-payloads (gethash socket
-                                      atomic-chrome-frame-socket-incomplete-payload-hash)))
+        (incomplete-payloads
+         (gethash socket
+                  atomic-chrome-frame-socket-incomplete-payload-hash)))
     (cond ((not (websocket-frame-completep frame))
            (puthash socket (append incomplete-payloads
                                    (list raw-payload))
@@ -634,7 +672,8 @@ FRAME holds the raw data received."
     (add-hook 'kill-buffer-query-functions
               #'atomic-chrome-unset-buffer-modified nil t)
     (when atomic-chrome-enable-auto-update
-      (add-hook 'post-command-hook #'atomic-chrome-send-buffer-text nil t))))
+      (add-hook 'post-command-hook #'atomic-chrome--send-buffer-text
+                nil t))))
 
 (defun atomic-chrome-turn-on-edit-mode ()
   "Turn on `atomic-chrome-edit-mode' if the buffer is an editing buffer."
