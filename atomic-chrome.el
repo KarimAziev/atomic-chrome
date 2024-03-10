@@ -675,6 +675,8 @@ FRAME holds the raw data received."
       (add-hook 'post-command-hook #'atomic-chrome--send-buffer-text
                 nil t))))
 
+(put 'atomic-chrome-edit-mode 'permanent-local t)
+
 (defun atomic-chrome-turn-on-edit-mode ()
   "Turn on `atomic-chrome-edit-mode' if the buffer is an editing buffer."
   (when (gethash (current-buffer) atomic-chrome-buffer-table)
