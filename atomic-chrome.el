@@ -184,6 +184,30 @@ corresponding major modes."
   :type 'hook
   :group 'atomic-chrome)
 
+(defcustom atomic-chrome-auto-remove-file 'if-not-saved
+  "Whether command `atomic-chrome-close-current-buffer' should remove the file.
+
+Determines whether to automatically remove the file associated with the buffer
+when closing the buffer with command `atomic-chrome-close-current-buffer'.
+
+If it is a function, it will be called with no arguments and should
+return non-nil if the file should be removed."
+  :group 'atomic-chrome
+  :type
+  '(radio
+    (const
+     :tag "Always: The file is always removed" t)
+    (const
+     :tag "Ask: Prompts the user to decide if the file should be removed" ask)
+    (const
+     :tag
+     "If not saved: Removes the file only if it has not been modified since it was opened"
+     if-not-saved)
+    (const
+     :tag "Never: The file is never removed" nil)
+    (function
+     :tag "Custom predicate")))
+
 (defcustom atomic-chrome-debug nil
   "Whether to enable debugging for Atomic Chrome.
 
@@ -475,10 +499,32 @@ the cursor at."
           (kill-buffer buffer))))))
 
 (defun atomic-chrome-close-current-buffer ()
-  "Close current buffer and connection from client."
+  "Close current buffer and optionally delete its file based on conditions.
+
+These conditions depends on the value of the custom variable
+`atomic-chrome-auto-remove-file'."
   (interactive)
-  (save-buffer)
-  (atomic-chrome-close-edit-buffer (current-buffer)))
+  (let* ((file buffer-file-name)
+         (should-remove
+          (and file
+               (file-exists-p file)
+               (pcase atomic-chrome-auto-remove-file
+                 ((pred (functionp))
+                  (funcall atomic-chrome-auto-remove-file))
+                 ('if-not-saved
+                  (with-temp-buffer (insert-file-contents file)
+                                    (message "%s" (buffer-size))
+                                    (zerop (buffer-size))))
+                 ('ask (yes-or-no-p (format "Remove %s?" file)))
+                 ('t t)))))
+    (if (and file
+             (file-exists-p file)
+             (not should-remove))
+        (save-buffer)
+      (set-buffer-modified-p nil))
+    (atomic-chrome-close-edit-buffer (current-buffer))
+    (when should-remove
+      (delete-file file))))
 
 (defun atomic-chrome-update-buffer (socket text &optional line column)
   "Replace buffer content with TEXT at LINE and COLUMN.
