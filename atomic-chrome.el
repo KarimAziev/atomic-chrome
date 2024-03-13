@@ -126,7 +126,7 @@ This setting is effective only when the value of
                   (symbol :tag "Parameter")
                   (sexp :tag "Value"))))
 
-(defcustom atomic-chrome-max-text-size-for-position-sync 5000000
+(defcustom atomic-chrome-max-text-size-for-position-sync 300000
   "Maximum text size for syncing cursor position.
 
 Specifies the maximum size of text (in characters) for which cursor position
@@ -267,12 +267,12 @@ Looks in `atomic-chrome-buffer-table'."
   "Generate payload with text and optionally cursor position from buffer."
   (let ((data (list (cons "text" (buffer-substring-no-properties
                                   (point-min)
-                                  (point-max)))
-                    (cons "selections" (atomic-chrome-get-selections)))))
+                                  (point-max))))))
     (if (> (buffer-size) atomic-chrome-max-text-size-for-position-sync)
         data
       (append data
               (list (cons "lineNumber" (line-number-at-pos (point) t))
+                    (cons "selections" (atomic-chrome-get-selections))
                     (cons "column" (1+ (length (buffer-substring-no-properties
                                                 (line-beginning-position)
                                                 (point))))))))))
