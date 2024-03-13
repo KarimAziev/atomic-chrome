@@ -127,7 +127,20 @@ The text will now open in an Emacs buffer, ready for you to edit.
 
 * Customization
 
-*** Set auto-update mode
+*** Configuring Auto-Removal of Files After Editing
+
+The custom variable =atomic-chrome-auto-remove-file= determines whether the command =atomic-chrome-close-current-buffer= should also remove the file.
+
+If it is a function, it will be invoked with no arguments and should return non-nil if the file is to be removed.
+
+*** Configuring or Disabling Position and Selection Synchronization
+
+The custom variable =atomic-chrome-max-text-size-for-position-sync= specifies the maximum size of text (in characters) for enabling cursor position and selection synchronization while editing. The default value is 300,000, which should suffice for most editing tasks.
+
+To completely disable the synchronization, set the value to 0.
+
+
+*** Set Auto-Update Mode
 
 Atomic Chrome for Emacs automatically reflects modifications to the browser by default as described above, but you can disable it by setting the variable below.
 
