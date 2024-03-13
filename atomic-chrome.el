@@ -136,7 +136,7 @@ If the size of the text being edited exceeds this limit, cursor position
 information (line and column) will not be included in the data sent to the
 browser extension. This is to prevent performance issues with large texts.
 
-The default value is 5000000, which should be sufficient for most editing tasks.
+The default value is 300000 which should be sufficient for most editing tasks.
 Adjusting this value may be necessary for working with very large files or to
 improve performance on slower systems.
 
