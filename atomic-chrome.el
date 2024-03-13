@@ -640,7 +640,7 @@ associated Emacs buffers for editing."
                        (remhash socket
                                 atomic-chrome-frame-socket-incomplete-buffers-hash)
                        (kill-buffer incomplete-data-buffer))))
-                  (msg (json-read-from-string
+                  (msg (atomic-chrome--json-parse-string
                         (decode-coding-string
                          (encode-coding-string combined-payload
                                                'utf-8)
