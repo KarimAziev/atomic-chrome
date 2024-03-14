@@ -256,14 +256,39 @@ Looks in `atomic-chrome-buffer-table'."
       (websocket-close socket))))
 
 (defun atomic-chrome-get-selections ()
-  "Return the start and end points of the current selection or cursor position."
-  (pcase-let* ((multi-poses (and (bound-and-true-p iedit-mode)
-                                 (boundp 'iedit-occurrences-overlays)
-                                 (mapcar
-                                  (lambda (ov)
-                                    (cons (overlay-start ov)
-                                          (overlay-end ov)))
-                                  iedit-occurrences-overlays)))
+  "Retrieve all text selections in the current Emacs buffer.
+
+Return JSON-compatible array of selection objects, where each object contains:
+- `start': The zero-based index of the selection's starting position.
+- `end': The zero-based index of the selection's ending position.
+
+Both `start' and `end' are inclusive and adjusted from Emacs's 1-based indexing.
+
+This function extracts the current selection(s) in the buffer, accounting for
+different scenarios:
+
+- A single active region defined by the user.
+- Multiple selections created by `iedit-mode`.
+
+If `iedit-mode' is active and there are multiple occurrences selected, all are
+included in the output, along with the primary selection if it exists.
+
+If there's no active region or `iedit-mode' selection, the current cursor
+position is returned as a selection with identical start and end positions.
+
+The primary selection is determined by:
+- The active Emacs region, if present.
+- The cursor's position otherwise, which may fall within an `iedit-mode'
+  selection or stand alone."
+  (pcase-let* ((multi-poses (and
+                             (not (region-active-p))
+                             (bound-and-true-p iedit-mode)
+                             (boundp 'iedit-occurrences-overlays)
+                             (mapcar
+                              (lambda (ov)
+                                (cons (overlay-start ov)
+                                      (overlay-end ov)))
+                              iedit-occurrences-overlays)))
                (primary-selection (if (and (use-region-p)
                                            (region-active-p))
                                       (cons (region-beginning)
@@ -288,7 +313,31 @@ Looks in `atomic-chrome-buffer-table'."
            (list primary-selection)))]))
 
 (defun atomic-chrome-get-update-text-payload ()
-  "Generate payload with text and optionally cursor position from buffer."
+  "Generate payload with text and optionally cursor position from buffer.
+
+Creates a payload for synchronization purposes, containing:
+- The entire text of the current buffer, without text properties, to ensure
+  compatibility with external systems.
+- Optionally (if the buffer size is within a pre-defined limit), detailed
+  information about the cursor's position and any active text selections.
+
+The inclusion of the cursor position and selection information is contingent on
+the buffer size not exceeding `atomic-chrome-max-text-size-for-position-sync';
+this limitation ensures performance stability by avoiding extensive computation
+for very large texts.
+
+
+Return a list of cons cells, where:
+- The key `text' is associated with the string content of the buffer.
+- If applicable, the key `lineNumber' specifies the current line number (1-based
+  indexing) where the cursor is located.
+- The key `selections' is associated with a list of selections (as defined by
+  `atomic-chrome-get-selections') present in the buffer.
+- If applicable, the key `column' indicates the cursor position in terms of the
+  number of characters from the beginning of the line (1-based indexing).
+
+This payload is formatted for easy conversion to JSON or other data interchange
+formats."
   (let ((data (list (cons "text" (buffer-substring-no-properties
                                   (point-min)
                                   (point-max))))))
