@@ -610,10 +610,9 @@ sorted.  FUNCTION must be a function of one argument."
    (pcase-lambda (`(,_key . ,pl))
      (let ((extensions (plist-get pl :extension))
            (urls (plist-get pl :url)))
-       (cond ((and extensions urls)
-              2)
-             ((or extensions urls)
-              1)
+       (cond ((and extensions urls) 3)
+             (urls 2)
+             (extensions 1)
              (t -1))))
    #'>
    atomic-chrome-create-file-strategy))
@@ -641,24 +640,30 @@ Argument SUFFIX is the file extension for the document; it can be nil.
 Argument URL is the url of the document being edited.
 
 See also `atomic-chrome-create-file-strategy'."
-  (let ((dir (if (functionp atomic-chrome-create-file-strategy)
-                 (funcall atomic-chrome-create-file-strategy url suffix)
-               (if (stringp atomic-chrome-create-file-strategy)
-                   atomic-chrome-create-file-strategy
-                 (if (listp atomic-chrome-create-file-strategy)
-                     (car
-                      (seq-find
-                       (pcase-lambda (`(,_key . ,pl))
-                         (let ((extensions (plist-get pl :extension))
-                               (urls (plist-get pl :url)))
-                           (let ((ext-match (or (not extensions)
-                                                (member suffix extensions)))
-                                 (urls-match (or (not urls)
-                                                 (member url urls))))
-                             (and ext-match urls-match))))
-                       (atomic-chrome--get-sorted-directory-rules)))
-                   atomic-chrome-create-file-strategy))))
-        (basename))
+  (let* ((host (condition-case nil
+                   (progn
+                     (require 'url-parse)
+                     (url-host (url-generic-parse-url url)))
+                 (error url)))
+         (dir (if (functionp atomic-chrome-create-file-strategy)
+                  (funcall atomic-chrome-create-file-strategy url suffix)
+                (if (stringp atomic-chrome-create-file-strategy)
+                    atomic-chrome-create-file-strategy
+                  (if (listp atomic-chrome-create-file-strategy)
+                      (car
+                       (seq-find
+                        (pcase-lambda (`(,_key . ,pl))
+                          (let ((extensions (plist-get pl :extension))
+                                (urls (plist-get pl :url)))
+                            (let ((ext-match (or (not extensions)
+                                                 (member suffix extensions)))
+                                  (urls-match
+                                   (or (not urls)
+                                       (member host urls))))
+                              (and ext-match urls-match))))
+                        (atomic-chrome--get-sorted-directory-rules)))
+                    atomic-chrome-create-file-strategy))))
+         (basename))
     (cond ((eq dir 'buffer)
            nil)
           ((stringp dir)
