@@ -658,7 +658,7 @@ their respective numeric values in pixels."
         ;; Screen is too small, cover the text area completely
         (setq emacs-frame-pos (alist-get 'left rect))))
     emacs-frame-pos))
-    
+
 (defun atomic-chrome-normalize-rect (rect)
   "Normalize pixel dimensions to character dimensions in RECT.
 
