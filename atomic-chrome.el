@@ -907,7 +907,11 @@ Fails silently if a server is already running."
   (if (or atomic-chrome-server-atomic-chrome
           (process-status "atomic-chrome-httpd"))
       (atomic-chrome-stop-server)
-    (atomic-chrome-start-server)))
+    (atomic-chrome-start-server))
+  (message (if (or atomic-chrome-server-ghost-text
+                   atomic-chrome-server-atomic-chrome)
+               "Server is started"
+             "Server is stopped")))
 
 
 (provide 'atomic-chrome)
