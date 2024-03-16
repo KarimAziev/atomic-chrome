@@ -559,7 +559,6 @@ These conditions depends on the value of the custom variable
                   (funcall atomic-chrome-auto-remove-file))
                  ('if-not-saved
                   (with-temp-buffer (insert-file-contents file)
-                                    (message "%s" (buffer-size))
                                     (zerop (buffer-size))))
                  ('ask (yes-or-no-p (format "Remove %s?" file)))
                  ('t t)))))
