@@ -43,8 +43,10 @@ Chrome Emacs works with several widely-used online editors, including:
   - [[#online-editors-support][Online Editors Support]]
 - [[#requirements][Requirements]]
 - [[#installation][Installation]]
-  - [[#browser-extension][Browser extension]]
-  - [[#package][Package]]
+  - [[#install-chrome-extension][Install Chrome extension]]
+  - [[#with-use-package-and-straightel][With use-package and straight.el]]
+  - [[#manual-installation][Manual installation]]
+  - [[#example-configuration][Example configuration]]
 - [[#usage][Usage]]
   - [[#how-to-bind-a-shortcut][How to Bind a Shortcut?]]
 - [[#customization][Customization]]
@@ -67,14 +69,11 @@ Chrome Emacs works with several widely-used online editors, including:
 
 * Installation
 
-** Browser extension
+** Install Chrome extension
 Install the [[https://chromewebstore.google.com/detail/chrome-emacs/dabdpcafiblbndpoadckibiaojbdnpjg][Chrome extension]].
 
-** Package
-#+html: <details><summary>
-**** Use-package with straight
-#+html: </summary>
-#+begin_src emacs-lisp
+** With use-package and straight.el
+#+begin_src elisp :eval no
 (use-package atomic-chrome
   :demand t
   :straight (atomic-chrome
@@ -86,17 +85,7 @@ Install the [[https://chromewebstore.google.com/detail/chrome-emacs/dabdpcafiblb
   :config (atomic-chrome-start-server))
 #+end_src
 
-#+html: </details>
-#+html: <details><summary>
-**** Manual with =M-x package-install-file=
-#+html: </summary>
-Clone or download this repository and run =M-x package-install-file⏎= on the repository directory.
-
-#+html: </details>
-#+html: <details><summary>
-
-**** Manual
-#+html: </summary>
+** Manual installation
 
 Download the source code and put it wherever you like, e.g. into =~/.emacs.d/atomic-chrome/=
 
@@ -111,9 +100,36 @@ Add the downloaded directory to the load path:
 (require 'atomic-chrome)
 (atomic-chrome-start-server)
 #+end_src
-#+html: </details>
-#+html: <details><summary>
 
+** Example configuration
+
+Below is the example of configuration:
+
+#+begin_src elisp
+(use-package atomic-chrome
+  :straight (atomic-chrome
+             :type git
+             :flavor nil
+             :host github
+             :repo "KarimAziev/atomic-chrome")
+  :defines atomic-chrome-create-file-strategy
+  :config
+  (setq-default atomic-chrome-extension-type-list '(atomic-chrome))
+  (setq-default atomic-chrome-buffer-open-style 'frame)
+  (setq-default atomic-chrome-auto-remove-file t)
+  (setq-default atomic-chrome-url-major-mode-alist
+                '(("ramdajs.com" . js-ts-mode)
+                  ("github.com" . gfm-mode)
+                  ("gitlab.com" . gfm-mode)
+                  ("leetcode.com" . typescript-ts-mode)
+                  ("codesandbox.io" . js-ts-mode)
+                  ("typescriptlang.org" . typescript-ts-mode)
+                  ("jsfiddle.net" . js-ts-mode)
+                  ("w3schools.com" . js-ts-mode)))
+  (add-to-list 'atomic-chrome-create-file-strategy
+               '("~/repos/ts-scratch/src/" :extension
+                 ("js" "ts" "tsx" "jsx" "cjs" "mjs"))))
+#+end_src
 
 * Usage
 
