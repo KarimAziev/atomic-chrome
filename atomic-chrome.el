@@ -41,10 +41,10 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
-(require 'json)
-(require 'let-alist)
 (eval-when-compile (require 'subr-x))
+(eval-when-compile (require 'cl-lib))
+
+(require 'let-alist)
 (require 'websocket)
 
 (defgroup atomic-chrome nil
