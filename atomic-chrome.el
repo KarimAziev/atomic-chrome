@@ -208,6 +208,76 @@ should return non-nil if the file should be removed."
     (function
      :tag "Custom predicate")))
 
+
+(defcustom atomic-chrome-create-file-strategy '((temp-directory)
+                                                (buffer :extension
+                                                 (nil)))
+  "The strategy for creating files edited with Atomic Chrome.
+
+This variable specifies whether and how files should be created: by using a
+specific or temporary directory, by working directly within buffers, or by
+dynamically selecting a save location based on the file's extension or
+associated URL.
+
+The value of this variable can be:
+- A directory path as a string.
+- The symbol `temp-directory' to designate the system's temporary directory.
+- The symbol `buffer' to work with buffers instead of creating files.
+- A function that is called with a URL (string) and an extension (string or
+  nil), which should return a directory path, the symbol `temp-directory', the
+  symbol `buffer', or nil.
+- An alist for specifying different directories or the `buffer' option based on
+  the file extension or URL.
+
+Each alist entry is a cons cell, where the car is a directory path,
+`temp-directory', or `buffer', and the cdr is a plist.
+
+The plist can include `:extension' and `:url' keys, which map to lists of
+strings for file extensions or URLs.
+
+If the `:extension' list contains nil, it matches files without an extension.
+
+Note: Omitting `:extension' or `:url', or setting them to nil, matches all
+conditions respectively."
+  :group 'atomic-chrome
+  :type
+  '(radio
+    directory
+    (const :tag "Always use temporary directory" temp-directory)
+    (const :tag "Never create file" buffer)
+    (function :tag "Function that return directory or symbol 'buffer'")
+    (alist
+     :tag
+     "Alist of matchers by file extensions and/or urls"
+     :key-type (choice
+                (directory :tag "Use directory")
+                (const :tag "Use temporary directory" temp-directory)
+                (const :tag "Use buffer" buffer))
+     :value-type
+     (plist
+      :tag "Matchers"
+      :key-type (radio
+                 :format "%t %v"
+                 :tag "if "
+                 :value :extension
+                 (const
+                  :tag "file extension "
+                  :format "file extension "
+                  :extension)
+                 (const
+                  :tag "hostname"
+                  :format " hostname "
+                  :url))
+      :value-type (group
+                   (set
+                    :inline t
+                    :format "%v"
+                    (const :tag "is none " nil))
+                   (repeat
+                    :inline t
+                    :tag "or one of" string))))))
+
+
 (defcustom atomic-chrome-debug nil
   "Whether to enable debugging for Atomic Chrome.
 
@@ -466,8 +536,8 @@ Argument FILE-EXTENSION is a string, list, or vector of strings."
                                       file-extension))
                     (t (car-safe file-extension)))))
     (if (string-prefix-p "." ext)
-        ext
-      (concat "." ext))))
+        (substring-no-properties ext 1)
+      ext)))
 
 (defun atomic-chrome--goto-line (line)
   "Move cursor to the specified LINE number.
@@ -488,6 +558,127 @@ Argument COLUMN is the column number to go to."
   (when column
     (move-to-column (1- column))))
 
+(defun atomic-chrome--filename-with-counter (file directory)
+  "Generate a unique filename in DIRECTORY by appending a counter to FILE.
+
+Argument FILE is the name of the file for which to generate a unique name.
+
+Argument DIRECTORY is the directory in which to check for existing files with
+similar names."
+  (let* ((ext (file-name-extension file))
+         (basename (file-name-base file))
+         (file-regex (concat "\\`"
+                             (regexp-quote basename)
+                             (if ext
+                                 (concat "\\(-[0-9]+\\)" "\\." ext "\\'")
+                               "\\(-[0-9]+\\)\\'")))
+         (max-count 0)
+         (new-name))
+    (dolist (filename (directory-files directory
+                                       nil
+                                       file-regex))
+      (let
+          ((count (string-to-number (car (last (split-string filename "-" t))))))
+        (when (> count max-count)
+          (setq max-count count))))
+    (setq new-name (string-join
+                    (delq nil (list (format "%s-%d" basename max-count)
+                                    (and ext (concat "." ext))))
+                    ""))
+    (while (file-exists-p (expand-file-name new-name
+                                            directory))
+      (setq max-count (1+ max-count))
+      (setq new-name (string-join
+                      (delq nil (list (format "%s-%d" basename max-count)
+                                      (and ext (concat "." ext))))
+                      "")))
+    (expand-file-name new-name directory)))
+
+(defun atomic-chrome--sort-by (function pred sequence)
+  "Sort SEQUENCE transformed by FUNCTION using PRED as the comparison function.
+Elements of SEQUENCE are transformed by FUNCTION before being
+sorted.  FUNCTION must be a function of one argument."
+  (seq-sort (lambda (a b)
+              (funcall pred
+                       (funcall function a)
+                       (funcall function b)))
+            sequence))
+
+(defun atomic-chrome--get-sorted-directory-rules ()
+  "Sort directory rules based on extensions and URLs presence."
+  (atomic-chrome--sort-by
+   (pcase-lambda (`(,_key . ,pl))
+     (let ((extensions (plist-get pl :extension))
+           (urls (plist-get pl :url)))
+       (cond ((and extensions urls)
+              2)
+             ((or extensions urls)
+              1)
+             (t -1))))
+   #'>
+   atomic-chrome-create-file-strategy))
+
+(defun atomic-chrome--title-to-basename (title)
+  "Convert a TITLE to a sanitized basename, replacing non-alphanumeric characters.
+
+Argument TITLE is the string to convert to a basename."
+  (let ((basename (replace-regexp-in-string
+                   "^[-]+\\|[-][-]" ""
+                   (replace-regexp-in-string
+                    "[^a-z0-9._-]+" "-"
+                    title))))
+    (if (string-empty-p basename)
+        "no-title"
+      basename)))
+
+(defun atomic-chrome-make-file (title suffix url)
+  "Create or select a file based on TITLE, SUFFIX, and URL.
+
+Argument TITLE is the title of the document being edited.
+
+Argument SUFFIX is the file extension for the document; it can be nil.
+
+Argument URL is the url of the document being edited.
+
+See also `atomic-chrome-create-file-strategy'."
+  (let ((dir (if (functionp atomic-chrome-create-file-strategy)
+                 (funcall atomic-chrome-create-file-strategy url suffix)
+               (if (stringp atomic-chrome-create-file-strategy)
+                   atomic-chrome-create-file-strategy
+                 (if (listp atomic-chrome-create-file-strategy)
+                     (car
+                      (seq-find
+                       (pcase-lambda (`(,_key . ,pl))
+                         (let ((extensions (plist-get pl :extension))
+                               (urls (plist-get pl :url)))
+                           (let ((ext-match (or (not extensions)
+                                                (member suffix extensions)))
+                                 (urls-match (or (not urls)
+                                                 (member url urls))))
+                             (and ext-match urls-match))))
+                       (atomic-chrome--get-sorted-directory-rules)))
+                   atomic-chrome-create-file-strategy))))
+        (basename))
+    (cond ((eq dir 'buffer)
+           nil)
+          ((stringp dir)
+           (setq basename (atomic-chrome--title-to-basename title))
+           (unless (file-exists-p dir)
+             (make-directory dir t))
+           (let ((file (atomic-chrome--filename-with-counter (if suffix
+                                                                 (concat
+                                                                  basename
+                                                                  "."
+                                                                  suffix)
+                                                               basename)
+                                                             dir)))
+             (write-region "" nil file nil nil nil)
+             file))
+          ((eq dir 'temp-directory)
+           (setq basename (atomic-chrome--title-to-basename title))
+           (make-temp-file basename
+                           nil
+                           (when suffix (concat "." suffix)))))))
 
 (defun atomic-chrome-create-buffer (socket url title text &optional extension
                                            line column rect)
@@ -512,15 +703,13 @@ Optional argument COLUMN is an integer specifying the column number to position
 the cursor at."
   (unless extension (setq extension (file-name-extension url)))
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
-         (file (make-temp-file (if (string-empty-p title)
-                                   "no-title"
-                                 (replace-regexp-in-string "^[-]+\\|[-][-]" ""
-                                                           (replace-regexp-in-string
-                                                            "[^a-z0-9._-]+" "-"
-                                                            title)))
-                               nil
-                               suffix))
-         (buffer (find-file-noselect file)))
+         (file (atomic-chrome-make-file title suffix url))
+         (buffer (if file
+                     (find-file-noselect file)
+                   (generate-new-buffer (atomic-chrome--safe-substring
+                                         (if (string-empty-p title) "No title"
+                                           title)
+                                         90)))))
     (with-current-buffer buffer
       (puthash buffer
                (list socket (atomic-chrome-show-edit-buffer
