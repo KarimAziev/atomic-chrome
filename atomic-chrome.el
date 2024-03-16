@@ -41,10 +41,10 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl-lib))
-(require 'json)
-(require 'let-alist)
 (eval-when-compile (require 'subr-x))
+(eval-when-compile (require 'cl-lib))
+
+(require 'let-alist)
 (require 'websocket)
 
 (defgroup atomic-chrome nil
@@ -185,13 +185,13 @@ corresponding major modes."
   :group 'atomic-chrome)
 
 (defcustom atomic-chrome-auto-remove-file 'if-not-saved
-  "Whether command `atomic-chrome-close-current-buffer' should remove the file.
+  "Determine if `atomic-chrome-close-current-buffer' should remove the file.
 
-Determines whether to automatically remove the file associated with the buffer
-when closing the buffer with command `atomic-chrome-close-current-buffer'.
+Dictates whether to automatically remove the file associated with the buffer
+when closing the buffer with `atomic-chrome-close-current-buffer'.
 
-If it is a function, it will be called with no arguments and should
-return non-nil if the file should be removed."
+If set to a function, this function will be called with no arguments and
+should return non-nil if the file should be removed."
   :group 'atomic-chrome
   :type
   '(radio
@@ -207,6 +207,76 @@ return non-nil if the file should be removed."
      :tag "Never: The file is never removed" nil)
     (function
      :tag "Custom predicate")))
+
+
+(defcustom atomic-chrome-create-file-strategy '((temp-directory)
+                                                (buffer :extension
+                                                 (nil)))
+  "The strategy for creating files edited with Atomic Chrome.
+
+This variable specifies whether and how files should be created: by using a
+specific or temporary directory, by working directly within buffers, or by
+dynamically selecting a save location based on the file's extension or
+associated URL.
+
+The value of this variable can be:
+- A directory path as a string.
+- The symbol `temp-directory' to designate the system's temporary directory.
+- The symbol `buffer' to work with buffers instead of creating files.
+- A function that is called with a URL (string) and an extension (string or
+  nil), which should return a directory path, the symbol `temp-directory', the
+  symbol `buffer', or nil.
+- An alist for specifying different directories or the `buffer' option based on
+  the file extension or URL.
+
+Each alist entry is a cons cell, where the car is a directory path,
+`temp-directory', or `buffer', and the cdr is a plist.
+
+The plist can include `:extension' and `:url' keys, which map to lists of
+strings for file extensions or URLs.
+
+If the `:extension' list contains nil, it matches files without an extension.
+
+Note: Omitting `:extension' or `:url', or setting them to nil, matches all
+conditions respectively."
+  :group 'atomic-chrome
+  :type
+  '(radio
+    directory
+    (const :tag "Always use temporary directory" temp-directory)
+    (const :tag "Never create file" buffer)
+    (function :tag "Function that return directory or symbol 'buffer'")
+    (alist
+     :tag
+     "Alist of matchers by file extensions and/or urls"
+     :key-type (choice
+                (directory :tag "Use directory")
+                (const :tag "Use temporary directory" temp-directory)
+                (const :tag "Use buffer" buffer))
+     :value-type
+     (plist
+      :tag "Matchers"
+      :key-type (radio
+                 :format "%t %v"
+                 :tag "if "
+                 :value :extension
+                 (const
+                  :tag "file extension "
+                  :format "file extension "
+                  :extension)
+                 (const
+                  :tag "hostname"
+                  :format " hostname "
+                  :url))
+      :value-type (group
+                   (set
+                    :inline t
+                    :format "%v"
+                    (const :tag "is none " nil))
+                   (repeat
+                    :inline t
+                    :tag "or one of" string))))))
+
 
 (defcustom atomic-chrome-debug nil
   "Whether to enable debugging for Atomic Chrome.
@@ -256,14 +326,39 @@ Looks in `atomic-chrome-buffer-table'."
       (websocket-close socket))))
 
 (defun atomic-chrome-get-selections ()
-  "Return the start and end points of the current selection or cursor position."
-  (pcase-let* ((multi-poses (and (bound-and-true-p iedit-mode)
-                                 (boundp 'iedit-occurrences-overlays)
-                                 (mapcar
-                                  (lambda (ov)
-                                    (cons (overlay-start ov)
-                                          (overlay-end ov)))
-                                  iedit-occurrences-overlays)))
+  "Retrieve all text selections in the current Emacs buffer.
+
+Return JSON-compatible array of selection objects, where each object contains:
+- `start': The zero-based index of the selection's starting position.
+- `end': The zero-based index of the selection's ending position.
+
+Both `start' and `end' are inclusive and adjusted from Emacs's 1-based indexing.
+
+This function extracts the current selection(s) in the buffer, accounting for
+different scenarios:
+
+- A single active region defined by the user.
+- Multiple selections created by `iedit-mode`.
+
+If `iedit-mode' is active and there are multiple occurrences selected, all are
+included in the output, along with the primary selection if it exists.
+
+If there's no active region or `iedit-mode' selection, the current cursor
+position is returned as a selection with identical start and end positions.
+
+The primary selection is determined by:
+- The active Emacs region, if present.
+- The cursor's position otherwise, which may fall within an `iedit-mode'
+  selection or stand alone."
+  (pcase-let* ((multi-poses (and
+                             (not (region-active-p))
+                             (bound-and-true-p iedit-mode)
+                             (boundp 'iedit-occurrences-overlays)
+                             (mapcar
+                              (lambda (ov)
+                                (cons (overlay-start ov)
+                                      (overlay-end ov)))
+                              iedit-occurrences-overlays)))
                (primary-selection (if (and (use-region-p)
                                            (region-active-p))
                                       (cons (region-beginning)
@@ -288,7 +383,31 @@ Looks in `atomic-chrome-buffer-table'."
            (list primary-selection)))]))
 
 (defun atomic-chrome-get-update-text-payload ()
-  "Generate payload with text and optionally cursor position from buffer."
+  "Generate payload with text and optionally cursor position from buffer.
+
+Creates a payload for synchronization purposes, containing:
+- The entire text of the current buffer, without text properties, to ensure
+  compatibility with external systems.
+- Optionally (if the buffer size is within a pre-defined limit), detailed
+  information about the cursor's position and any active text selections.
+
+The inclusion of the cursor position and selection information is contingent on
+the buffer size not exceeding `atomic-chrome-max-text-size-for-position-sync';
+this limitation ensures performance stability by avoiding extensive computation
+for very large texts.
+
+
+Return a list of cons cells, where:
+- The key `text' is associated with the string content of the buffer.
+- If applicable, the key `lineNumber' specifies the current line number (1-based
+  indexing) where the cursor is located.
+- The key `selections' is associated with a list of selections (as defined by
+  `atomic-chrome-get-selections') present in the buffer.
+- If applicable, the key `column' indicates the cursor position in terms of the
+  number of characters from the beginning of the line (1-based indexing).
+
+This payload is formatted for easy conversion to JSON or other data interchange
+formats."
   (let ((data (list (cons "text" (buffer-substring-no-properties
                                   (point-min)
                                   (point-max))))))
@@ -341,7 +460,7 @@ Argument STR is the string from which a substring is extracted.
 Argument MAX-WIDTH is the maximum length of the substring to extract."
   (substring str 0 (min (length str) max-width)))
 
-(defun atomic-chrome--make-frame (title &optional rect)
+(defun atomic-chrome--make-frame (&optional rect)
   "Create a new frame for Atomic Chrome with specified parameters.
 
 Argument TITLE is a string representing the title of the frame.
@@ -360,11 +479,7 @@ positioning the frame near the area being edited."
                                          atomic-chrome-buffer-frame-width))
                              (list (cons 'height
                                          atomic-chrome-buffer-frame-height))
-                             atomic-chrome-frame-parameters
-                             (list (cons 'name (format "Atomic Chrome: %s"
-                                                       (atomic-chrome--safe-substring
-                                                        title
-                                                        90))))))))
+                             atomic-chrome-frame-parameters))))
     (when rect-params
       (setq frame-params (append frame-params rect-params)))
     (when (and (or (assq 'left frame-params)
@@ -384,17 +499,18 @@ positioning the frame near the area being edited."
           (t
            (make-frame frame-params)))))
 
-(defun atomic-chrome-show-edit-buffer (buffer title &optional rect)
-  "Open or switch to an edit BUFFER with specified dimensions and title.
+(defun atomic-chrome-show-edit-buffer (buffer _title &optional rect)
+  "Open or switch to an edit BUFFER, setting its dimensions as specified.
 
-Argument BUFFER is the buffer to display in the editing window or frame.
+Argument BUFFER is the buffer to be displayed in the editing window or frame.
 
-Argument TITLE is the title for the editing window or frame.
+Argument _TITLE is for backward compatibility and is ignored because it might
+cause an error due to a resource key that is too long.
 
 Optional argument RECT is an alist containing pixel dimensions and positions for
 the editing frame."
   (let ((edit-frame (and (eq atomic-chrome-buffer-open-style 'frame)
-                         (atomic-chrome--make-frame title rect))))
+                         (atomic-chrome--make-frame rect))))
     (when edit-frame
       (select-frame edit-frame))
     (if (eq atomic-chrome-buffer-open-style 'split)
@@ -420,8 +536,8 @@ Argument FILE-EXTENSION is a string, list, or vector of strings."
                                       file-extension))
                     (t (car-safe file-extension)))))
     (if (string-prefix-p "." ext)
-        ext
-      (concat "." ext))))
+        (substring-no-properties ext 1)
+      ext)))
 
 (defun atomic-chrome--goto-line (line)
   "Move cursor to the specified LINE number.
@@ -442,6 +558,142 @@ Argument COLUMN is the column number to go to."
   (when column
     (move-to-column (1- column))))
 
+(defun atomic-chrome--filename-with-counter (file directory)
+  "Generate a unique filename in DIRECTORY by appending a counter to FILE.
+
+Argument FILE is the name of the file for which to generate a unique name.
+
+Argument DIRECTORY is the directory in which to check for existing files with
+similar names."
+  (let* ((ext (file-name-extension file))
+         (basename (file-name-base file))
+         (file-regex (concat "\\`"
+                             (regexp-quote basename)
+                             (if ext
+                                 (concat "\\(-[0-9]+\\)" "\\." ext "\\'")
+                               "\\(-[0-9]+\\)\\'")))
+         (max-count 0)
+         (new-name))
+    (dolist (filename (directory-files directory
+                                       nil
+                                       file-regex))
+      (let
+          ((count (string-to-number (car (last (split-string filename "-" t))))))
+        (when (> count max-count)
+          (setq max-count count))))
+    (setq new-name (string-join
+                    (delq nil (list (format "%s-%d" basename max-count)
+                                    (and ext (concat "." ext))))
+                    ""))
+    (while (file-exists-p (expand-file-name new-name
+                                            directory))
+      (setq max-count (1+ max-count))
+      (setq new-name (string-join
+                      (delq nil (list (format "%s-%d" basename max-count)
+                                      (and ext (concat "." ext))))
+                      "")))
+    (expand-file-name new-name directory)))
+
+(defun atomic-chrome--sort-by (function pred sequence)
+  "Sort SEQUENCE transformed by FUNCTION using PRED as the comparison function.
+Elements of SEQUENCE are transformed by FUNCTION before being
+sorted.  FUNCTION must be a function of one argument."
+  (seq-sort (lambda (a b)
+              (funcall pred
+                       (funcall function a)
+                       (funcall function b)))
+            sequence))
+
+(defun atomic-chrome--get-sorted-directory-rules ()
+  "Sort directory rules based on extensions and URLs presence."
+  (atomic-chrome--sort-by
+   (pcase-lambda (`(,_key . ,pl))
+     (let ((extensions (plist-get pl :extension))
+           (urls (plist-get pl :url)))
+       (cond ((and extensions urls) 3)
+             (urls 2)
+             (extensions 1)
+             (t -1))))
+   #'>
+   atomic-chrome-create-file-strategy))
+
+(defun atomic-chrome--title-to-basename (title)
+  "Convert a TITLE to a sanitized basename, replacing non-alphanumeric characters.
+
+Argument TITLE is the string to convert to a basename."
+  (let ((basename (replace-regexp-in-string
+                   "^[-]+\\|[-][-]" ""
+                   (replace-regexp-in-string
+                    "[^a-z0-9._-]+" "-"
+                    title))))
+    (if (string-empty-p basename)
+        "no-title"
+      basename)))
+
+(defun atomic-chrome--get-dir-strategy (url suffix)
+  "Determine file creation strategy based on URL and suffix.
+
+Argument URL is the url of the webpage being edited.
+
+Argument SUFFIX is the file extension of the content being edited.
+
+See also `atomic-chrome-create-file-strategy'."
+  (let ((hostname (condition-case nil
+                      (progn
+                        (require 'url-parse)
+                        (url-host (url-generic-parse-url url)))
+                    (error url))))
+    (if (functionp atomic-chrome-create-file-strategy)
+        (funcall atomic-chrome-create-file-strategy url suffix)
+      (if (stringp atomic-chrome-create-file-strategy)
+          atomic-chrome-create-file-strategy
+        (if (listp atomic-chrome-create-file-strategy)
+            (car
+             (seq-find
+              (pcase-lambda (`(,_key . ,pl))
+                (let ((extensions (plist-get pl :extension))
+                      (urls (plist-get pl :url)))
+                  (let ((ext-match (or (not extensions)
+                                       (member suffix extensions)))
+                        (urls-match
+                         (or (not urls)
+                             (member hostname urls))))
+                    (and ext-match urls-match))))
+              (atomic-chrome--get-sorted-directory-rules)))
+          atomic-chrome-create-file-strategy)))))
+
+(defun atomic-chrome-make-file (title suffix url)
+  "Create or select a file based on TITLE, SUFFIX, and URL.
+
+Argument TITLE is the title of the document being edited.
+
+Argument SUFFIX is the file extension for the document; it can be nil.
+
+Argument URL is the url of the document being edited.
+
+See also `atomic-chrome-create-file-strategy'."
+  (let ((dir (atomic-chrome--get-dir-strategy url suffix))
+        (basename))
+    (cond ((eq dir 'buffer)
+           nil)
+          ((eq dir 'temp-directory)
+           (setq basename (atomic-chrome--title-to-basename title))
+           (make-temp-file basename
+                           nil
+                           (when suffix (concat "." suffix))))
+          ((stringp dir)
+           (setq basename (atomic-chrome--title-to-basename title))
+           (unless (file-exists-p dir)
+             (make-directory dir t))
+           (let ((file (atomic-chrome--filename-with-counter (if suffix
+                                                                 (concat
+                                                                  basename
+                                                                  "."
+                                                                  suffix)
+                                                               basename)
+                                                             dir)))
+             (write-region "" nil file nil nil nil)
+             file)))))
 
 (defun atomic-chrome-create-buffer (socket url title text &optional extension
                                            line column rect)
@@ -466,15 +718,13 @@ Optional argument COLUMN is an integer specifying the column number to position
 the cursor at."
   (unless extension (setq extension (file-name-extension url)))
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
-         (file (make-temp-file (if (string-empty-p title)
-                                   "no-title"
-                                 (replace-regexp-in-string "^[-]+\\|[-][-]" ""
-                                                           (replace-regexp-in-string
-                                                            "[^a-z0-9._-]+" "-"
-                                                            title)))
-                               nil
-                               suffix))
-         (buffer (find-file-noselect file)))
+         (file (atomic-chrome-make-file title suffix url))
+         (buffer (if file
+                     (find-file-noselect file)
+                   (generate-new-buffer (atomic-chrome--safe-substring
+                                         (if (string-empty-p title) "No title"
+                                           title)
+                                         90)))))
     (with-current-buffer buffer
       (puthash buffer
                (list socket (atomic-chrome-show-edit-buffer
@@ -513,7 +763,6 @@ These conditions depends on the value of the custom variable
                   (funcall atomic-chrome-auto-remove-file))
                  ('if-not-saved
                   (with-temp-buffer (insert-file-contents file)
-                                    (message "%s" (buffer-size))
                                     (zerop (buffer-size))))
                  ('ask (yes-or-no-p (format "Remove %s?" file)))
                  ('t t)))))
@@ -613,7 +862,7 @@ their respective numeric values in pixels."
         ;; Screen is too small, cover the text area completely
         (setq emacs-frame-pos (alist-get 'left rect))))
     emacs-frame-pos))
-    
+
 (defun atomic-chrome-normalize-rect (rect)
   "Normalize pixel dimensions to character dimensions in RECT.
 
@@ -861,7 +1110,11 @@ Fails silently if a server is already running."
   (if (or atomic-chrome-server-atomic-chrome
           (process-status "atomic-chrome-httpd"))
       (atomic-chrome-stop-server)
-    (atomic-chrome-start-server)))
+    (atomic-chrome-start-server))
+  (message (if (or atomic-chrome-server-ghost-text
+                   atomic-chrome-server-atomic-chrome)
+               "Server is started"
+             "Server is stopped")))
 
 
 (provide 'atomic-chrome)
