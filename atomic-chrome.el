@@ -390,7 +390,7 @@ Argument STR is the string from which a substring is extracted.
 Argument MAX-WIDTH is the maximum length of the substring to extract."
   (substring str 0 (min (length str) max-width)))
 
-(defun atomic-chrome--make-frame (title &optional rect)
+(defun atomic-chrome--make-frame (&optional rect)
   "Create a new frame for Atomic Chrome with specified parameters.
 
 Argument TITLE is a string representing the title of the frame.
@@ -409,11 +409,7 @@ positioning the frame near the area being edited."
                                          atomic-chrome-buffer-frame-width))
                              (list (cons 'height
                                          atomic-chrome-buffer-frame-height))
-                             atomic-chrome-frame-parameters
-                             (list (cons 'name (format "Atomic Chrome: %s"
-                                                       (atomic-chrome--safe-substring
-                                                        title
-                                                        90))))))))
+                             atomic-chrome-frame-parameters))))
     (when rect-params
       (setq frame-params (append frame-params rect-params)))
     (when (and (or (assq 'left frame-params)
@@ -433,17 +429,18 @@ positioning the frame near the area being edited."
           (t
            (make-frame frame-params)))))
 
-(defun atomic-chrome-show-edit-buffer (buffer title &optional rect)
-  "Open or switch to an edit BUFFER with specified dimensions and title.
+(defun atomic-chrome-show-edit-buffer (buffer _title &optional rect)
+  "Open or switch to an edit BUFFER, setting its dimensions as specified.
 
-Argument BUFFER is the buffer to display in the editing window or frame.
+Argument BUFFER is the buffer to be displayed in the editing window or frame.
 
-Argument TITLE is the title for the editing window or frame.
+Argument _TITLE is for backward compatibility and is ignored because it might
+cause an error due to a resource key that is too long.
 
 Optional argument RECT is an alist containing pixel dimensions and positions for
 the editing frame."
   (let ((edit-frame (and (eq atomic-chrome-buffer-open-style 'frame)
-                         (atomic-chrome--make-frame title rect))))
+                         (atomic-chrome--make-frame rect))))
     (when edit-frame
       (select-frame edit-frame))
     (if (eq atomic-chrome-buffer-open-style 'split)
