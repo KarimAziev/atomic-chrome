@@ -185,13 +185,13 @@ corresponding major modes."
   :group 'atomic-chrome)
 
 (defcustom atomic-chrome-auto-remove-file 'if-not-saved
-  "Whether command `atomic-chrome-close-current-buffer' should remove the file.
+  "Determine if `atomic-chrome-close-current-buffer' should remove the file.
 
-Determines whether to automatically remove the file associated with the buffer
-when closing the buffer with command `atomic-chrome-close-current-buffer'.
+Dictates whether to automatically remove the file associated with the buffer
+when closing the buffer with `atomic-chrome-close-current-buffer'.
 
-If it is a function, it will be called with no arguments and should
-return non-nil if the file should be removed."
+If set to a function, this function will be called with no arguments and
+should return non-nil if the file should be removed."
   :group 'atomic-chrome
   :type
   '(radio
