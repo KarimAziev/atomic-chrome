@@ -132,11 +132,11 @@ Below is the example of configuration:
 
 https://github.com/KarimAziev/atomic-chrome/assets/24935940/e1f6875c-d917-4a8b-ad58-35d55eeb5cbb
 
-Ensure that Emacs is running with the [[https://github.com/KarimAziev/atomic-chrome][atomic-chrome fork]] (or [[https://github.com/alpha22jp/atomic-chrome][original atomic-chrome]]) loaded and the server is running (=M-x atomic-chrome-start-server=).
+1. Run =M-x atomic-chrome-start-server= in Emacs. This is needed only once.
 
-1. Focus on or select from detected editable text areas, text editors, or contenteditable elements in Chrome.
+2. Focus on or select from detected editable text areas, text editors, or contenteditable elements in Chrome.
 
-2. Activate Chrome Emacs. This can typically be done by clicking on the extension's icon or using a keyboard shortcut.
+3. Activate Chrome Emacs. This can typically be done by clicking on the extension's icon or using a keyboard shortcut.
 
 #+CAPTION: Hints
 [[./images/hints.png][./images/hints.png]]
