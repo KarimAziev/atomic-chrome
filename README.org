@@ -84,7 +84,7 @@ Install the [[https://chromewebstore.google.com/detail/chrome-emacs/dabdpcafiblb
 
 ** Manual installation
 
-Install [websocket](https://github.com/ahyatt/emacs-websocket/tree/main) and =let-alist= packages. Download the source code and put it wherever you like, e.g. into =~/.emacs.d/atomic-chrome/=:
+Install [[https://github.com/ahyatt/emacs-websocket/tree/main][websocket]] and =let-alist= packages. Download the source code and put it wherever you like, e.g. into =~/.emacs.d/atomic-chrome/=:
 
 #+begin_src shell :eval no
 git clone https://github.com/KarimAziev/atomic-chrome.git ~/.emacs.d/atomic-chrome/
