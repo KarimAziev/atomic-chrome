@@ -50,22 +50,19 @@ Chrome Emacs works with several widely-used online editors, including:
 - [[#usage][Usage]]
   - [[#how-to-bind-a-shortcut][How to Bind a Shortcut?]]
 - [[#customization][Customization]]
-  - [[#configuring-or-disabling-position-and-selection-synchronization][Configuring or Disabling Position and Selection Synchronization]]
-  - [[#set-fallback-major-mode-for-editing-buffer][Set Fallback Major Mode for Editing Buffer]]
-  - [[#configure-or-disable-file-creation][Configure or Disable File Creation]]
-  - [[#configuring-auto-removal-of-files-after-editing][Configuring Auto-Removal of Files After Editing]]
-  - [[#set-auto-update-mode][Set Auto-Update Mode]]
+  - [[#position-and-selection-synchronization][Position and Selection Synchronization]]
+  - [[#fallback-major-mode-for-editing-buffer][Fallback Major Mode for Editing Buffer]]
+  - [[#file-creation][File Creation]]
+  - [[#auto-removal-of-files-after-editing][Auto-Removal of Files After Editing]]
+  - [[#maximum-filename-length][Maximum Filename Length]]
+  - [[#auto-update-mode][Auto-Update Mode]]
 #+END_QUOTE
 
 * Requirements
 
-| Name         |                 Version |
-|--------------+-------------------------|
-| Emacs        |                    24.4 |
-| ~let-alist~  |                   1.0.6 |
-| ~websocket~  |                    1.13 |
-| [[https://github.com/KarimAziev/chrome-emacs][chrome-emacs]] | Google Chrome extension |
-
+| Name  | Version |
+|-------+---------|
+| Emacs | >= 25.1 |
 
 * Installation
 
@@ -87,7 +84,7 @@ Install the [[https://chromewebstore.google.com/detail/chrome-emacs/dabdpcafiblb
 
 ** Manual installation
 
-Download the source code and put it wherever you like, e.g. into =~/.emacs.d/atomic-chrome/=
+Install [websocket](https://github.com/ahyatt/emacs-websocket/tree/main) and =let-alist= packages. Download the source code and put it wherever you like, e.g. into =~/.emacs.d/atomic-chrome/=:
 
 #+begin_src shell :eval no
 git clone https://github.com/KarimAziev/atomic-chrome.git ~/.emacs.d/atomic-chrome/
@@ -162,13 +159,13 @@ The text will now open in an Emacs buffer, ready for you to edit.
 
 * Customization
 
-** Configuring or Disabling Position and Selection Synchronization
+** Position and Selection Synchronization
 
 The custom variable =atomic-chrome-max-text-size-for-position-sync= specifies the maximum size of text (in characters) for enabling cursor position and selection synchronization while editing. The default value is 300,000, which should suffice for most editing tasks.
 
 To completely disable the synchronization, set the value to 0.
 
-** Set Fallback Major Mode for Editing Buffer
+** Fallback Major Mode for Editing Buffer
 
 The default major mode of an editing buffer is set automatically if it can be determined from the file extension or URL extension. If not, it will fall back to the mode specified in the custom variable =atomic-chrome-default-major-mode=. 
 You can change the major mode manually. If you want to use a different major mode as the default, set =atomic-chrome-default-major-mode= as shown below.
@@ -193,7 +190,7 @@ This is an association list of regular expressions and major mode functions. If 
 Detected mode will take precedence over =atomic-chrome-url-major-mode-alist= and =atomic-chrome-default-major-mode= , which will be used only if the mode cannot be determined automatically.
 #+end_quote
 
-You can select the style for opening the editing buffer with `atomic-chrome-buffer-open-style` as shown below.
+You can select the style for opening the editing buffer with =atomic-chrome-buffer-open-style= as shown below.
 
 #+BEGIN_SRC emacs-lisp
   (setq atomic-chrome-buffer-open-style 'frame)
@@ -211,11 +208,10 @@ If you select =frame=, you can set the width and height of the frame with =atomi
 
 #+begin_quote
 [!TIP]
-
-When the Atomic Chrome client includes a =rect= with pixel dimensions and positions, the =left= and =top= positions of the frame may be automatically calculated and adjusted to align with a text area in a web browser. This automatic calculation is bypassed if =left= and =top= are explicitly specified, favoring the user-defined positions instead.
+By default, Atomic Chrome tries to automatically calculate the =left= and =top= positions of the frame based on the position of the textarea in the browser. You can disable this by adding these parameters to =atomic-chrome-frame-parameters=, which take precedence.
 #+end_quote
 
-** Configure or Disable File Creation
+** File Creation
 
 The =atomic-chrome-create-file-strategy= variable controls the approach for creating or managing files when editing content from a browser. It offers flexible configurations—from specifying a fixed directory, using the system's temporary directory, working directly within buffers, to dynamically determining the save location based on the file's extension or its associated URL.
 
@@ -273,7 +269,7 @@ Opens files without an extension in buffers, avoiding saving them to a directory
 
 - *Use Custom Function*
 
-  A custom function that specifies directories based on file extensions: files with "tsx" and "ts" extensions go to "~/my-typescript-scratch/", "org" files go to the `org-directory`, files with other non-nil extensions use the temporary directory, and files without extensions don't get created.
+  A custom function that specifies directories based on file extensions: files with "tsx" and "ts" extensions go to "~/my-typescript-scratch/", "org" files go to the =org-directory=, files with other non-nil extensions use the temporary directory, and files without extensions don't get created.
 #+begin_src elisp
 (setq atomic-chrome-create-file-strategy (lambda (_url extension)
                                           (cond ((member extension '("tsx" "ts"))
@@ -283,13 +279,21 @@ Opens files without an extension in buffers, avoiding saving them to a directory
                                                 (extension 'temp-directory))))
 #+end_src
 
-** Configuring Auto-Removal of Files After Editing
+** Auto-Removal of Files After Editing
 
 The =atomic-chrome-auto-remove-file= variable decides if =atomic-chrome-close-current-buffer= should also remove the file associated with the buffer upon closing.
 
 If this variable is a function, it will be invoked with no arguments, and it should return non-nil if the file is to be removed.
 
-** Set Auto-Update Mode
+** Maximum Filename Length
+
+To ensure compatibility with file systems that impose limits on filename lengths, the =atomic-chrome-max-filename-size= custom variable allows you to define the maximum number of characters allowed in filenames generated by the Atomic Chrome package. This feature is crucial for avoiding "File name too long" errors, which can occur when the title of the web page being edited is excessively long.
+
+By default, this limit is set to 70 characters. However, users can adjust this setting to suit their specific needs or file system restrictions. When a page title exceeds the configured limit, its corresponding filename will be automatically truncated to comply with this maximum length specification.
+
+To modify this setting, simply set the =atomic-chrome-max-filename-size= variable to a different integer value, representing your preferred maximum filename length.
+
+** Auto-Update Mode
 
 Atomic Chrome for Emacs automatically reflects modifications to the browser by default as described above, but you can disable it by setting the variable below.
 
@@ -297,4 +301,4 @@ Atomic Chrome for Emacs automatically reflects modifications to the browser by d
   (setq atomic-chrome-enable-auto-update nil)
 #+END_SRC
 
-In this case, you can apply the modifications to the browser with C-c C-s
+In this case, you can apply the modifications to the browser with =C-c C-s= (or =M-x atomic-chrome-send-buffer-text=).

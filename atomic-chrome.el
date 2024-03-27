@@ -277,6 +277,26 @@ conditions respectively."
                     :inline t
                     :tag "or one of" string))))))
 
+(defcustom atomic-chrome-max-filename-size 70
+  "Maximum length for generated file names.
+
+Specifies the maximum length for generated file names when editing with Atomic
+Chrome.
+
+The value is an integer representing the maximum number of characters allowed in
+the file name. If the title of the page being edited exceeds this limit, it will
+be truncated to fit.
+
+This ensures that file names remain within a manageable length, avoiding issues
+with file systems that have maximum file name length restrictions.
+
+The default value is 70 characters.
+
+To adjust this setting, set it to a different integer value according to the
+desired maximum file name length."
+  :group 'atomic-chrome
+  :type 'integer)
+
 
 (defcustom atomic-chrome-debug nil
   "Whether to enable debugging for Atomic Chrome.
@@ -626,9 +646,11 @@ Argument TITLE is the string to convert to a basename."
                    (replace-regexp-in-string
                     "[^a-z0-9._-]+" "-"
                     title))))
-    (if (string-empty-p basename)
-        "no-title"
-      basename)))
+    (atomic-chrome--safe-substring
+     (if (string-empty-p basename)
+         "no-title"
+       basename)
+     atomic-chrome-max-filename-size)))
 
 (defun atomic-chrome--get-dir-strategy (url suffix)
   "Determine file creation strategy based on URL and suffix.
@@ -716,7 +738,17 @@ cursor at.
 
 Optional argument COLUMN is an integer specifying the column number to position
 the cursor at."
-  (unless extension (setq extension (file-name-extension url)))
+  (unless extension (setq extension
+                          (condition-case nil
+                              (progn
+                                (require 'url-parse)
+                                (when-let ((ext (file-name-extension
+                                                 (car (url-path-and-query
+                                                       (url-generic-parse-url
+                                                        url))))))
+                                  (unless (> (length ext) 5)
+                                    ext)))
+                            (error nil))))
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
          (file (atomic-chrome-make-file title suffix url))
          (buffer (if file
@@ -724,7 +756,7 @@ the cursor at."
                    (generate-new-buffer (atomic-chrome--safe-substring
                                          (if (string-empty-p title) "No title"
                                            title)
-                                         90)))))
+                                         atomic-chrome-max-filename-size)))))
     (with-current-buffer buffer
       (puthash buffer
                (list socket (atomic-chrome-show-edit-buffer
@@ -1115,7 +1147,6 @@ Fails silently if a server is already running."
                    atomic-chrome-server-atomic-chrome)
                "Server is started"
              "Server is stopped")))
-
 
 (provide 'atomic-chrome)
 ;;; atomic-chrome.el ends here
