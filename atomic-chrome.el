@@ -787,10 +787,12 @@ the cursor at."
 These conditions depends on the value of the custom variable
 `atomic-chrome-auto-remove-file'."
   (interactive)
-  (let* ((file buffer-file-name)
+  (let* ((file
+          (when (and buffer-file-name
+                     (file-exists-p buffer-file-name))
+            buffer-file-name))
          (should-remove
           (and file
-               (file-exists-p file)
                (pcase atomic-chrome-auto-remove-file
                  ((pred (functionp))
                   (funcall atomic-chrome-auto-remove-file))
@@ -800,7 +802,6 @@ These conditions depends on the value of the custom variable
                  ('ask (yes-or-no-p (format "Remove %s?" file)))
                  ('t t)))))
     (if (and file
-             (file-exists-p file)
              (not should-remove))
         (save-buffer)
       (set-buffer-modified-p nil))
