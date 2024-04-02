@@ -763,8 +763,9 @@ the cursor at."
                              buffer title
                              rect))
                atomic-chrome-buffer-table)
+      (let ((buffer-undo-list t))
+        (insert text))
       (atomic-chrome-set-major-mode url)
-      (insert text)
       (atomic-chrome--goto-position line column))))
 
 (defun atomic-chrome-close-edit-buffer (buffer)
