@@ -127,22 +127,42 @@ This setting is effective only when the value of
                   (sexp :tag "Value"))))
 
 (defcustom atomic-chrome-max-text-size-for-position-sync 300000
-  "Maximum text size for syncing cursor position.
+  "Set the maximum buffer size for enabling cursor position synchronization.
 
-Specifies the maximum size of text (in characters) for which cursor position
-synchronization is attempted when editing with Atomic Chrome.
+This variable can be set to:
+- t, to enable position synchronization regardless of buffer size.
+- nil, to disable position synchronization.
+- A positive integer, specifying the maximum buffer size in characters for
+  enabling position synchronization. Beyond this size, position synchronization
+  is disabled.
 
-If the size of the text being edited exceeds this limit, cursor position
-information (line and column) will not be included in the data sent to the
-browser extension. This is to prevent performance issues with large texts.
-
-The default value is 300000 which should be sufficient for most editing tasks.
-Adjusting this value may be necessary for working with very large files or to
-improve performance on slower systems.
-
-This value should be an integer."
+Use this to balance between precise cursor synchronization and performance,
+especially in very large texts. The default is 300,000 characters."
   :group 'atomic-chrome
-  :type 'natnum)
+  :type '(radio
+          (const :tag "Enable" t)
+          (const :tag "Disable" nil)
+          (natnum :tag "Buffer size limit" 300000)))
+
+(defcustom atomic-chrome-max-text-size-for-selection-sync 300000
+  "Control whether and how to enable text selection synchronization.
+
+This affects synchronization between Emacs and the browser extension, with the
+following options:
+
+- t, to always enable selection synchronization, regardless of buffer size.
+- nil, to disable selection synchronization.
+- A positive integer, specifying the buffer size limit in characters for
+  enabling selection synchronization. Beyond this size, selection
+  synchronization is disabled to improve performance.
+
+To toggle selection synchronization locally for the current buffer, use the
+command `atomic-chrome-toggle-selection'."
+  :group 'atomic-chrome
+  :type '(radio
+          (const :tag "Enable" t)
+          (const :tag "Disable" nil)
+          (natnum :tag "Buffer size limit" 300000)))
 
 (defcustom atomic-chrome-server-ghost-text-port 4001
   "HTTP server port for Ghost Text."
@@ -367,7 +387,7 @@ If there's no active region or `iedit-mode' selection, the current cursor
 position is returned as a selection with identical start and end positions.
 
 The primary selection is determined by:
-- The active Emacs region, if present.
+- The active region, if present.
 - The cursor's position otherwise, which may fall within an `iedit-mode'
   selection or stand alone."
   (pcase-let* ((multi-poses (and
@@ -402,43 +422,76 @@ The primary selection is determined by:
                            multi-poses))
            (list primary-selection)))]))
 
-(defun atomic-chrome-get-update-text-payload ()
-  "Generate payload with text and optionally cursor position from buffer.
+(defun atomic-chrome--get-position-data ()
+  "Return alist of 1-based indexing `lineNumber' and `column' positions.
 
-Creates a payload for synchronization purposes, containing:
+The key `lineNumber' specifies the current line number (1-based indexing)
+where the cursor is located.
+
+The key `column' indicates the cursor position in terms of the number of
+characters from the beginning of the line (1-based indexing)."
+  (let ((pos (point)))
+    (list (cons "lineNumber"
+                (line-number-at-pos pos t))
+          (cons "column"
+                (1+ (length (buffer-substring-no-properties
+                             (line-beginning-position)
+                             pos)))))))
+
+(defun atomic-chrome--get-selections-data ()
+  "Return alist containing `selections' as a key, mapped to a vector of alists.
+
+Each alist in the vector represents a selection with `start' and `end'
+positions, both using zero-based indexing."
+  (list (cons "selections" (atomic-chrome-get-selections))))
+
+(defun atomic-chrome-get-update-text-payload ()
+  "Return alist with text and, optionally, cursor position and selections.
+
+Produces a payload for synchronization purposes. This payload includes:
 - The entire text of the current buffer, without text properties, to ensure
   compatibility with external systems.
-- Optionally (if the buffer size is within a pre-defined limit), detailed
-  information about the cursor's position and any active text selections.
+- Depending on buffer size and settings, detailed information about the cursor's
+  position and any active text selections.
 
-The inclusion of the cursor position and selection information is contingent on
-the buffer size not exceeding `atomic-chrome-max-text-size-for-position-sync';
-this limitation ensures performance stability by avoiding extensive computation
-for very large texts.
+The inclusion of cursor position and selection information is contingent upon
+the buffer size not exceeding `atomic-chrome-max-text-size-for-position-sync'
+and `atomic-chrome-max-text-size-for-selection-sync' respectively. These limits
+help ensure performance stability by preventing extensive computation for very
+large texts.
 
+The payload is returned as a list of cons cells:
 
-Return a list of cons cells, where:
-- The key `text' is associated with the string content of the buffer.
-- If applicable, the key `lineNumber' specifies the current line number (1-based
-  indexing) where the cursor is located.
-- The key `selections' is associated with a list of selections (as defined by
-  `atomic-chrome-get-selections') present in the buffer.
-- If applicable, the key `column' indicates the cursor position in terms of the
-  number of characters from the beginning of the line (1-based indexing).
+- The key `text' is paired with the buffer's string content.
+- The key `lineNumber', if applicable, specifies the current line number with
+  1-based indexing.
+- The key `column', if applicable, indicates the cursor's position in characters
+  from the start of the line, also using 1-based indexing.
+- The key `selections', if applicable, is associated with a list of selections
+  present in the buffer, as defined by `atomic-chrome-get-selections'.
 
 This payload is formatted for easy conversion to JSON or other data interchange
 formats."
   (let ((data (list (cons "text" (buffer-substring-no-properties
                                   (point-min)
-                                  (point-max))))))
-    (if (> (buffer-size) atomic-chrome-max-text-size-for-position-sync)
-        data
-      (append data
-              (list (cons "lineNumber" (line-number-at-pos (point) t))
-                    (cons "selections" (atomic-chrome-get-selections))
-                    (cons "column" (1+ (length (buffer-substring-no-properties
-                                                (line-beginning-position)
-                                                (point))))))))))
+                                  (point-max)))))
+        (size))
+    (when (or (eq atomic-chrome-max-text-size-for-position-sync t)
+              (and atomic-chrome-max-text-size-for-position-sync
+                   (progn
+                     (setq size (buffer-size))
+                     (> atomic-chrome-max-text-size-for-position-sync size))))
+      (setq data
+            (nconc data
+                   (atomic-chrome--get-position-data))))
+    (when (or (eq atomic-chrome-max-text-size-for-selection-sync t)
+              (and atomic-chrome-max-text-size-for-selection-sync
+                   (> atomic-chrome-max-text-size-for-selection-sync
+                      (or size
+                          (buffer-size)))))
+      (setq data
+            (nconc data (atomic-chrome--get-selections-data))))
+    data))
 
 
 (defun atomic-chrome--send-buffer-text ()
@@ -1106,6 +1159,16 @@ STRING is the string process received."
           (body (json-encode '(:ProtocolVersion 1 :WebSocketPort 64293))))
       (process-send-string proc (concat header "\n" body))
       (process-send-eof proc))))
+
+(defun atomic-chrome-toggle-selection ()
+  "Toggle text selection synchronization in current buffer only."
+  (interactive)
+  (setq-local atomic-chrome-max-text-size-for-selection-sync
+              (not atomic-chrome-max-text-size-for-selection-sync))
+  (message "atomic-chrome: %s text selection synchronization"
+           (if atomic-chrome-max-text-size-for-selection-sync
+               "Enabled" "Disabled"))
+  atomic-chrome-max-text-size-for-selection-sync)
 
 ;;;###autoload
 (defun atomic-chrome-start-server ()

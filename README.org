@@ -161,9 +161,15 @@ The text will now open in an Emacs buffer, ready for you to edit.
 
 ** Position and Selection Synchronization
 
-The custom variable =atomic-chrome-max-text-size-for-position-sync= specifies the maximum size of text (in characters) for enabling cursor position and selection synchronization while editing. The default value is 300,000, which should suffice for most editing tasks.
+The custom variables =atomic-chrome-max-text-size-for-position-sync= and =atomic-chrome-max-text-size-for-selection-sync= provide separate controls for enabling cursor position and text selection synchronization during editing.
 
-To completely disable the synchronization, set the value to 0.
+- =atomic-chrome-max-text-size-for-position-sync= specifies the maximum buffer size (in characters) for enabling cursor position synchronization. Its default value is 300,000, which should suffice for most editing tasks.
+
+- =atomic-chrome-max-text-size-for-selection-sync= allows for specifying the maximum buffer size (in characters) for text selection synchronization. This variable supports the same default value of 300,000 characters.
+
+To completely disable synchronization of either cursor position or text selection, you can set the respective variable to nil or 0.
+
+Additionally, the command =atomic-chrome-toggle-selection= can be used to quickly toggle text selection synchronization for the current buffer, offering a convenient way to adjust synchronization without visiting the customization interface.
 
 ** Fallback Major Mode for Editing Buffer
 
