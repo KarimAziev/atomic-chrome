@@ -33,7 +33,8 @@ Chrome Emacs works with several widely-used online editors, including:
 - ☒ [[https://repl.it/][repl.it]]
 - ☒ [[https://glitch.com/][glitch.com]]
 - ☒ [[https://plnkr.co/][plnkr.co]]
-- ☐ [[https://codesandbox.io/][codesandbox.io]] (Currently unsupported due to a lack of Monaco API exposure).
+- ☒ [[https://codesandbox.io/][codesandbox.io]] (experimental support).
+- ☒ [[https://vscode.dev][vscode.dev]] (experimental support).
 
 
 * Table of Contents                                       :TOC_2_gh:QUOTE:
@@ -111,7 +112,6 @@ Below is the example of configuration:
              :repo "KarimAziev/atomic-chrome")
   :defines atomic-chrome-create-file-strategy
   :config
-  (setq-default atomic-chrome-extension-type-list '(atomic-chrome))
   (setq-default atomic-chrome-buffer-open-style 'frame)
   (setq-default atomic-chrome-auto-remove-file t)
   (setq-default atomic-chrome-url-major-mode-alist
