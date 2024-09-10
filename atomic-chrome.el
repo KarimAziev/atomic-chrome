@@ -337,7 +337,7 @@ off."
 
 (defvar atomic-chrome-buffer-table (make-hash-table :test 'equal)
   "Hash table of editing buffer and its assciated data.
-Each element has a list consisting of (websocket, frame).")
+Each element has a list consisting of (websocket, frame, (url, title, extension)).")
 
 (defun atomic-chrome-get-websocket (buffer)
   "Look up websocket associated with buffer BUFFER.
@@ -348,6 +348,11 @@ Looks in `atomic-chrome-buffer-table'."
   "Look up frame associated with buffer BUFFER.
 Looks in `atomic-chrome-buffer-table'."
   (nth 1 (gethash buffer atomic-chrome-buffer-table)))
+
+(defun atomic-chrome-get-info (buffer)
+  "Look up information like url, title, extension associated with buffer BUFFER.
+Looks in `atomic-chrome-buffer-table'."
+  (nth 2 (gethash buffer atomic-chrome-buffer-table)))
 
 (defun atomic-chrome-get-buffer-by-socket (socket)
   "Look up buffer which is associated to the websocket SOCKET.
@@ -814,7 +819,8 @@ the cursor at."
       (puthash buffer
                (list socket (atomic-chrome-show-edit-buffer
                              buffer title
-                             rect))
+                             rect)
+                     (list url title extension))
                atomic-chrome-buffer-table)
       (let ((buffer-undo-list t))
         (insert text))
