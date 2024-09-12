@@ -337,7 +337,8 @@ off."
 
 (defvar atomic-chrome-buffer-table (make-hash-table :test 'equal)
   "Hash table of editing buffer and its assciated data.
-Each element has a list consisting of (websocket, frame, (url, title, extension)).")
+Each element has a list consisting of (websocket, frame, (url,
+title, extension)).")
 
 (defun atomic-chrome-get-websocket (buffer)
   "Look up websocket associated with buffer BUFFER.
