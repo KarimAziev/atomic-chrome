@@ -478,26 +478,29 @@ The payload is returned as a list of cons cells:
 
 This payload is formatted for easy conversion to JSON or other data interchange
 formats."
-  (let ((data (list (cons "text" (buffer-substring-no-properties
-                                  (point-min)
-                                  (point-max)))))
-        (size))
-    (when (or (eq atomic-chrome-max-text-size-for-position-sync t)
-              (and atomic-chrome-max-text-size-for-position-sync
-                   (progn
-                     (setq size (buffer-size))
-                     (> atomic-chrome-max-text-size-for-position-sync size))))
-      (setq data
-            (nconc data
-                   (atomic-chrome--get-position-data))))
-    (when (or (eq atomic-chrome-max-text-size-for-selection-sync t)
-              (and atomic-chrome-max-text-size-for-selection-sync
-                   (> atomic-chrome-max-text-size-for-selection-sync
-                      (or size
-                          (buffer-size)))))
-      (setq data
-            (nconc data (atomic-chrome--get-selections-data))))
-    data))
+  (save-excursion
+    (save-restriction
+      (widen)
+      (let ((data (list (cons "text" (buffer-substring-no-properties
+                                      (point-min)
+                                      (point-max)))))
+            (size))
+        (when (or (eq atomic-chrome-max-text-size-for-position-sync t)
+                  (and atomic-chrome-max-text-size-for-position-sync
+                       (progn
+                         (setq size (buffer-size))
+                         (> atomic-chrome-max-text-size-for-position-sync size))))
+          (setq data
+                (nconc data
+                       (atomic-chrome--get-position-data))))
+        (when (or (eq atomic-chrome-max-text-size-for-selection-sync t)
+                  (and atomic-chrome-max-text-size-for-selection-sync
+                       (> atomic-chrome-max-text-size-for-selection-sync
+                          (or size
+                              (buffer-size)))))
+          (setq data
+                (nconc data (atomic-chrome--get-selections-data))))
+        data))))
 
 
 (defun atomic-chrome--send-buffer-text ()
