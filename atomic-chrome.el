@@ -258,7 +258,9 @@ strings for file extensions or URLs.
 If the `:extension' list contains nil, it matches files without an extension.
 
 Note: Omitting `:extension' or `:url', or setting them to nil, matches all
-conditions respectively."
+conditions respectively.
+
+See also `atomic-chrome-make-file-save-initial-contents'."
   :group 'atomic-chrome
   :type
   '(radio
@@ -317,6 +319,12 @@ desired maximum file name length."
   :group 'atomic-chrome
   :type 'integer)
 
+(defcustom atomic-chrome-make-file-save-initial-contents nil
+  "Whether to write the initial buffer contents to the file.
+
+Takes effect if `atomic-chrome-create-file-strategy' creates a file."
+  :group 'atomic-chrome
+  :type 'boolean)
 
 (defcustom atomic-chrome-debug nil
   "Whether to enable debugging for Atomic Chrome.
@@ -828,6 +836,8 @@ the cursor at."
                atomic-chrome-buffer-table)
       (let ((buffer-undo-list t))
         (insert text))
+      (when (and file atomic-chrome-make-file-save-initial-contents)
+        (save-buffer))
       (atomic-chrome-set-major-mode url)
       (atomic-chrome--goto-position line column))))
 
