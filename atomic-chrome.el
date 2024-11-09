@@ -617,17 +617,18 @@ the editing frame."
 Argument FILE-EXTENSION is a string, list, or vector of strings."
   (when (vectorp file-extension)
     (setq file-extension (seq-find #'stringp (append file-extension nil))))
-  (when-let ((ext
-              (cond ((or (not file-extension)
-                         (stringp file-extension))
-                     file-extension)
-                    ((length> file-extension 1)
-                     (completing-read "File extension: "
-                                      file-extension))
-                    (t (car-safe file-extension)))))
-    (if (string-prefix-p "." ext)
-        (substring-no-properties ext 1)
-      ext)))
+  (let ((ext
+         (cond ((or (not file-extension)
+                    (stringp file-extension))
+                file-extension)
+               ((length> file-extension 1)
+                (completing-read "File extension: "
+                                 file-extension))
+               (t (car-safe file-extension)))))
+    (when ext
+      (if (string-prefix-p "." ext)
+          (substring-no-properties ext 1)
+        ext))))
 
 (defun atomic-chrome--goto-line (line)
   "Move cursor to the specified LINE number.
@@ -812,12 +813,13 @@ the cursor at."
                           (condition-case nil
                               (progn
                                 (require 'url-parse)
-                                (when-let ((ext (file-name-extension
-                                                 (car (url-path-and-query
-                                                       (url-generic-parse-url
-                                                        url))))))
-                                  (unless (> (length ext) 5)
-                                    ext)))
+                                (let ((ext (file-name-extension
+                                            (car (url-path-and-query
+                                                  (url-generic-parse-url
+                                                   url))))))
+                                  (when ext
+                                    (unless (> (length ext) 5)
+                                      ext))))
                             (error nil))))
   (let* ((suffix (atomic-chrome-normalize-file-extension extension))
          (file (atomic-chrome-make-file title suffix url))
