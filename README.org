@@ -47,7 +47,7 @@ Chrome Emacs works with several widely-used online editors, including:
   - [[#install-chrome-extension][Install Chrome extension]]
   - [[#with-use-package-and-straightel][With use-package and straight.el]]
   - [[#manual-installation][Manual installation]]
-  - [[#example-configuration][Example configuration]]
+  - [[#example-configuration-with-deferred-loading][Example configuration with deferred loading]]
 - [[#usage][Usage]]
   - [[#how-to-bind-a-shortcut][How to Bind a Shortcut?]]
 - [[#customization][Customization]]
@@ -99,12 +99,43 @@ Add the downloaded directory to the load path:
 (atomic-chrome-start-server)
 #+end_src
 
-** Example configuration
+** Example configuration with deferred loading
 
-Below is the example of configuration:
+Below is an example configuration that demonstrates deferred (lazy) loading of =atomic-chrome=. The =atomic-chrome= server's loading and startup are delayed until the first focus change of the Emacs frame (e.g., when you switch to the browser).
 
 #+begin_src elisp
 (use-package atomic-chrome
+  :defer t
+  :init
+  (defvar km-atomic-chrome-first-frame-changed nil
+    "Non-nil if a frame focus change occurred after Emacs started.
+Tracks whether to defer `atomic-chrome' server startup until the first focus
+change.")
+  (defun km-atomic-chrome-run-server-after-focus-change (&rest _)
+    "Start Atomic Chrome server upon graphical frame focus change.
+
+For GUI sessions:
+- The server is started only on the second focus change event (the first one
+  is triggered immediately after Emacs starts).
+- After starting the server, this function removes itself from
+  `after-focus-change-function' to avoid further overhead.
+
+In terminal (`tty') environments, it disables itself immediately since focus
+changes are not applicable."
+    (let ((frame (selected-frame)))
+      (if (tty-top-frame frame)
+          (remove-function after-focus-change-function
+                           'km-atomic-chrome-run-server-after-focus-change)
+        (when (frame-parameter frame 'last-focus-update)
+          (if (not km-atomic-chrome-first-frame-changed)
+              (setq km-atomic-chrome-first-frame-changed t)
+            (remove-function after-focus-change-function
+                             'km-atomic-chrome-run-server-after-focus-change)
+            (require 'atomic-chrome)
+            (when (fboundp 'atomic-chrome-start-server)
+              (atomic-chrome-start-server)))))))
+  (add-function :after after-focus-change-function
+                'km-atomic-chrome-run-server-after-focus-change)
   :straight (atomic-chrome
              :type git
              :flavor nil
@@ -115,17 +146,19 @@ Below is the example of configuration:
   (setq-default atomic-chrome-buffer-open-style 'frame)
   (setq-default atomic-chrome-auto-remove-file t)
   (setq-default atomic-chrome-url-major-mode-alist
-                '(("ramdajs.com" . js-ts-mode)
-                  ("github.com" . gfm-mode)
+                '(("github.com" . gfm-mode)
+                  ("us-east-2.console.aws.amazon.com" . yaml-ts-mode)
+                  ("ramdajs.com" . js-ts-mode)
                   ("gitlab.com" . gfm-mode)
                   ("leetcode.com" . typescript-ts-mode)
-                  ("codesandbox.io" . js-ts-mode)
                   ("typescriptlang.org" . typescript-ts-mode)
                   ("jsfiddle.net" . js-ts-mode)
                   ("w3schools.com" . js-ts-mode)))
   (add-to-list 'atomic-chrome-create-file-strategy
                '("~/repos/ts-scratch/src/" :extension
-                 ("js" "ts" "tsx" "jsx" "cjs" "mjs"))))
+                 ("js" "ts" "tsx" "jsx" "cjs" "mjs")))
+  (add-to-list 'atomic-chrome-create-file-strategy
+               '("~/repos/python-scratch" :extension ("py"))))
 #+end_src
 
 * Usage
@@ -173,7 +206,7 @@ Additionally, the command =atomic-chrome-toggle-selection= can be used to quickl
 
 ** Fallback Major Mode for Editing Buffer
 
-The default major mode of an editing buffer is set automatically if it can be determined from the file extension or URL extension. If not, it will fall back to the mode specified in the custom variable =atomic-chrome-default-major-mode=. 
+The default major mode of an editing buffer is set automatically if it can be determined from the file extension or URL extension. If not, it will fall back to the mode specified in the custom variable =atomic-chrome-default-major-mode=.
 You can change the major mode manually. If you want to use a different major mode as the default, set =atomic-chrome-default-major-mode= as shown below.
 
 #+BEGIN_SRC emacs-lisp
