@@ -57,6 +57,7 @@ Chrome Emacs works with several widely-used online editors, including:
   - [[#auto-removal-of-files-after-editing][Auto-Removal of Files After Editing]]
   - [[#maximum-filename-length][Maximum Filename Length]]
   - [[#auto-update-mode][Auto-Update Mode]]
+  - [[#simulated-clicks-via-custom-rules][Simulated Clicks via Custom Rules]]
 #+END_QUOTE
 
 * Requirements
@@ -341,3 +342,34 @@ Atomic Chrome for Emacs automatically reflects modifications to the browser by d
 #+END_SRC
 
 In this case, you can apply the modifications to the browser with =C-c C-s= (or =M-x atomic-chrome-send-buffer-text=).
+
+** Simulated Clicks via Custom Rules
+
+The command =atomic-chrome-send-click-command= allows you to send a simulated click to the browser (for example, to click “Send” in Slack after editing).
+
+#+begin_quote
+[!IMPORTANT]
+
+Some sites may remove the editing element after clicking on, for example, the submit button. Removal of this element might disconnect the session.
+#+end_quote
+
+To use this feature, you must configure custom variable =atomic-chrome-click-rules-alist= for the sites along with a matching CSS selector and, optionally, the text of the element to click.
+
+Here is an example showing several valid configurations for different sites:
+
+#+begin_src elisp
+(setq atomic-chrome-click-rules-alist
+      '(("app.slack.com/client/"
+         :selector "[aria-label=\"Send now\"]")
+        ("google.com"
+         :selector "button[type=\"submit\"]"
+         :innerText "My button")
+        ("something.com"
+         :selector ("button[aria-label=\"Search\"][type=\"submit\"]" "button[type=\"submit\"]")
+         :innerText ("Text 1" "Text 2"))))
+#+end_src
+
+In the example above:
+ - The first rule for "app.slack.com/client/" defines a single CSS selector. In this case, the first element that matches will be used.
+ - The second rule for "google.com" specifies a button with type submit as the target element. This rule is applied only if the inner text of the element includes "My button".
+ - The last example, for "something.com", defines two CSS selectors, and specifies two inner text values, "Text 1" and "Text 2". When =atomic-chrome-send-click-command= is invoked on a page with a URL matching "something.com", the browser will search for elements that match either selector. If multiple matching elements are found, only the one whose inner text best includes one of the given strings ("Text 1" or "Text 2") will be clicked.

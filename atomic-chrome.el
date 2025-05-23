@@ -299,6 +299,38 @@ See also `atomic-chrome-make-file-save-initial-contents'."
                     :inline t
                     :tag "or one of" string))))))
 
+(defcustom atomic-chrome-click-rules-alist nil
+  "Association list mapping URL patterns to element click rules.
+
+Each entry in the alist consists of a regular expression that matches a webpage
+URL and the plist defining criteria to identify a target element on that page.
+
+The plist may contain the following keys:
+- :selector: A CSS selector string (or list of strings) which specifies one or
+  more candidate elements.
+- :innerText: A string (or list of strings) used to score candidates by matching
+  inner text. When provided, the element with the best match is used."
+  :group 'atomic-chrome
+  :type
+  '(alist
+    :key-type (regexp :tag "regexp")
+    :value-type
+    (plist
+     :tag "Element matchers (CSS selector and/or inner text)"
+     :value (:selector "")
+     :key-type (radio :value :selector
+                (const
+                 :tag "CSS selector"
+                 :selector)
+                (const
+                 :tag "Inner text"
+                 :innerText))
+     :value-type
+     (radio :value ""
+      (string :tag "Value")
+      (repeat
+       :tag "List of values (the first matched will be used)" string)))))
+
 (defcustom atomic-chrome-max-filename-size 70
   "Maximum length for generated file names.
 
@@ -528,6 +560,31 @@ formats."
   "Send request to update text with the current buffer content."
   (interactive)
   (atomic-chrome--send-buffer-text))
+
+(defun atomic-chrome-send-click-command ()
+  "Instruct the extension to perform the click on the element in the browser.
+
+The element is determined based on `atomic-chrome-click-rules-alist' for the
+current buffer URL.
+
+Note: Some sites may remove the editing element after clicking on, for example,
+the submit button. Removal of this element might disconnect the session."
+  (interactive)
+  (let* ((buff (current-buffer))
+         (socket (atomic-chrome-get-websocket buff))
+         (url (car (atomic-chrome-get-info buff)))
+         (payload (assoc-default url atomic-chrome-click-rules-alist
+                                 'string-match)))
+    (cond ((not socket)
+           (message "Atomic Chrome: No socket in current buffer"))
+          ((not payload)
+           (message "Atomic Chrome: No click rules for url '%s'" url))
+          (t
+           (websocket-send-text
+            socket
+            (json-encode
+             (list '("type" . "clickElement")
+                   (cons "payload" payload))))))))
 
 (defun atomic-chrome-set-major-mode (url)
   "Set major mode for editing buffer depending on URL.
