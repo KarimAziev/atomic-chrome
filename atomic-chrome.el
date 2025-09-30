@@ -957,8 +957,9 @@ after the update."
   (let ((buffer (atomic-chrome-get-buffer-by-socket socket)))
     (when buffer
       (with-current-buffer buffer
-        (erase-buffer)
-        (insert text)
+        (unless (string= (buffer-string) text)
+          (erase-buffer)
+          (insert text))
         (atomic-chrome--goto-position line column)))))
 
 (defun atomic-chrome--json-parse-string (str &optional object-type array-type
