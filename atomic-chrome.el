@@ -1174,7 +1174,7 @@ associated Emacs buffers for editing."
     (atomic-chrome-edit-mode t)))
 
 ;;;###autoload
-(define-global-minor-mode global-atomic-chrome-edit-mode
+(define-globalized-minor-mode global-atomic-chrome-edit-mode
   atomic-chrome-edit-mode atomic-chrome-turn-on-edit-mode)
 
 (defun atomic-chrome-start-websocket-server (port)
