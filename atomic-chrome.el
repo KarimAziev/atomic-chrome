@@ -643,6 +643,8 @@ positioning the frame near the area being edited."
            (make-frame frame-params))
           ((memq window-system '(w32))
            (make-frame-on-display "w32" frame-params))
+          ;; For Emacs running as a daemon on Linux when the selected frame is
+          ;; not an emacsclient frame (#10).
           ((and (memq system-type '(gnu gnu/linux gnu/kfreebsd))
                 (not (frame-parameter (selected-frame) 'client)))
            (make-frame-on-display (getenv "DISPLAY") frame-params))
