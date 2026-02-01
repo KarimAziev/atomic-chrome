@@ -25,10 +25,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up Emacs ${{ matrix.emacs-version }}
-        uses: purcell/setup-emacs@v2.1
+      - name: Set up Emacs
+        uses: purcell/setup-emacs@master
         with:
-          version: ${{ matrix.emacs-version }}
+          version: ${{matrix.emacs_version}}
 
       - name: Install dependencies
         run: |
