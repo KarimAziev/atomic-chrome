@@ -1,7 +1,7 @@
 ;;; atomic-chrome.el --- Edit Chrome text areas -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2016 alpha22jp <alpha22jp@gmail.com>
-;;           (C) 2024 Karim Aziiev <karim.aziiev@gmail.com>
+;;           (C) 2024-2026 Karim Aziiev <karim.aziiev@gmail.com>
 
 ;; Author: alpha22jp <alpha22jp@gmail.com>
 ;;         Karim Aziiev <karim.aziiev@gmail.com>
@@ -607,6 +607,11 @@ Argument STR is the string from which a substring is extracted.
 Argument MAX-WIDTH is the maximum length of the substring to extract."
   (substring str 0 (min (length str) max-width)))
 
+(defun atomic-chrome--alist-set (alist key value)
+  "Set KEY to VALUE in ALIST, replacing any existing entry."
+  (cons (cons key value)
+        (assq-delete-all key alist)))
+
 (defun atomic-chrome--make-frame (&optional rect)
   "Create a new frame for Atomic Chrome with specified parameters.
 
@@ -620,19 +625,35 @@ automatically, allowing the frame to open in alignment with specific elements on
 the client side, such as a text area in a web browser. This is useful for
 positioning the frame near the area being edited."
   (let ((rect-params (and rect (atomic-chrome-normalize-rect rect)))
-        (frame-params (delq nil
-                            (append
-                             (list (cons 'width
-                                         atomic-chrome-buffer-frame-width))
-                             (list (cons 'height
-                                         atomic-chrome-buffer-frame-height))
-                             atomic-chrome-frame-parameters))))
+        (frame-params (copy-tree atomic-chrome-frame-parameters)))
+    (setq frame-params
+          (atomic-chrome--alist-set frame-params
+                                    'width
+                                    atomic-chrome-buffer-frame-width))
+    (setq frame-params
+          (atomic-chrome--alist-set frame-params
+                                    'height
+                                    atomic-chrome-buffer-frame-height))
     (when rect-params
-      (setq frame-params (append frame-params rect-params)))
+      (dolist (param rect-params)
+        (pcase (car param)
+          ((or 'left 'top)
+           ;; Explicit user-specified positions disable automatic placement.
+           (unless (assq (car param) atomic-chrome-frame-parameters)
+             (setq frame-params
+                   (atomic-chrome--alist-set frame-params
+                                             (car param)
+                                             (cdr param)))))
+          (_
+           (setq frame-params
+                 (atomic-chrome--alist-set frame-params
+                                           (car param)
+                                           (cdr param)))))))
     (when (and (or (assq 'left frame-params)
                    (assq 'top frame-params)))
       (when (not (cdr (assq 'user-position frame-params)))
-        (push '(user-position . t) frame-params)))
+        (setq frame-params
+              (atomic-chrome--alist-set frame-params 'user-position t))))
     (cond ((memq window-system '(pgtk x))
            (if (or (not x-display-name)
                    (string-match-p "wayland" x-display-name))
@@ -1006,56 +1027,152 @@ represent a JSON false value.  It defaults to `:false'."
           (json-false (or false-object nil)))
       (json-read-from-string str))))
 
-(defun atomic-chrome--calculate-frame-left-position (rect)
+(defun atomic-chrome--clamp (value min-value max-value)
+  "Clamp VALUE between MIN-VALUE and MAX-VALUE."
+  (max min-value
+       (min value max-value)))
+
+(defun atomic-chrome--rect-edge (rect edge)
+  "Return EDGE from RECT, deriving missing values when possible."
+  (pcase edge
+    ('left (or (alist-get 'left rect)
+               (alist-get 'x rect)
+               0))
+    ('top (or (alist-get 'top rect)
+              (alist-get 'y rect)
+              0))
+    ('right (or (alist-get 'right rect)
+                (+ (atomic-chrome--rect-edge rect 'left)
+                   (max 0 (or (alist-get 'width rect) 0)))))
+    ('bottom (or (alist-get 'bottom rect)
+                 (+ (atomic-chrome--rect-edge rect 'top)
+                    (max 0 (or (alist-get 'height rect) 0)))))
+    ('width (max 0
+                 (or (alist-get 'width rect)
+                     (- (atomic-chrome--rect-edge rect 'right)
+                        (atomic-chrome--rect-edge rect 'left)))))
+    ('height (max 0
+                  (or (alist-get 'height rect)
+                      (- (atomic-chrome--rect-edge rect 'bottom)
+                         (atomic-chrome--rect-edge rect 'top)))))))
+
+(defun atomic-chrome--pixels-to-columns (pixels)
+  "Convert PIXELS to frame columns, rounding up."
+  (max 1
+       (ceiling (/ (float pixels)
+                   (max 1 (frame-char-width))))))
+
+(defun atomic-chrome--pixels-to-lines (pixels)
+  "Convert PIXELS to frame lines, rounding up."
+  (max 1
+       (ceiling (/ (float pixels)
+                   (max 1 (frame-char-height))))))
+
+(defun atomic-chrome--minimum-frame-height ()
+  "Return a conservative minimum frame height in lines.
+
+This keeps enough vertical room for the editing window and minibuffer even when
+the browser reports a very short text area."
+  (max 8 window-min-height))
+
+(defun atomic-chrome--calculate-frame-left-position (rect frame-pix-width)
   "Calculate left position for an frame based on screen and window dimensions.
 
 Argument RECT is an alist containing `left', and `right' with
 their respective numeric values in pixels."
   (let* ((screen-width (display-pixel-width))
-         (emacs-pix-width
-          (* atomic-chrome-buffer-frame-width (frame-char-width)))
-         (left-space (alist-get 'left rect))
-         (right-space (- screen-width (alist-get 'right rect)))
+         (rect-left (atomic-chrome--rect-edge rect 'left))
+         (rect-right (atomic-chrome--rect-edge rect 'right))
+         (left-space rect-left)
+         (right-space (- screen-width rect-right))
          (emacs-frame-pos nil))
-    (if (>= (+ left-space right-space) emacs-pix-width)
+    (if (>= (+ left-space right-space) frame-pix-width)
         ;; We have enough space to place Emacs frame without covering the text area
         (if (> left-space right-space)
             ;; Place to the left
-            (setq emacs-frame-pos (- left-space emacs-pix-width))
+            (setq emacs-frame-pos (- left-space frame-pix-width))
           ;; Place to the right
-          (setq emacs-frame-pos (alist-get 'right rect)))
+          (setq emacs-frame-pos rect-right))
       ;; Not enough space, cover text area starting from its right or left side
-      (if (< emacs-pix-width screen-width)
+      (if (< frame-pix-width screen-width)
           (if (> left-space right-space)
               ;; Place to the left, covering the area partially or entirely
-              (setq emacs-frame-pos (- left-space emacs-pix-width))
+              (setq emacs-frame-pos (- left-space frame-pix-width))
             ;; Place to the right, covering the area partially or entirely
-            (setq emacs-frame-pos (alist-get 'left rect)))
+            (setq emacs-frame-pos rect-left))
         ;; Screen is too small, cover the text area completely
-        (setq emacs-frame-pos (alist-get 'left rect))))
-    emacs-frame-pos))
+        (setq emacs-frame-pos rect-left)))
+    (atomic-chrome--clamp emacs-frame-pos
+                          0
+                          (max 0 (- screen-width frame-pix-width)))))
+
+(defun atomic-chrome--calculate-frame-top-position (rect frame-pix-height)
+  "Calculate top position for RECT and FRAME-PIX-HEIGHT.
+
+When the browser element is close to the bottom of the screen, shift the frame
+up so the full frame remains visible."
+  (let* ((screen-height (display-pixel-height))
+         ;; Leave a small safety margin for window decorations so the minibuffer
+         ;; is not pushed outside the visible display.
+         (screen-bottom-limit (- screen-height
+                                 (max 24 (frame-char-height))))
+         (rect-top (atomic-chrome--rect-edge rect 'top)))
+    (atomic-chrome--clamp rect-top
+                          0
+                          (max 0 (- screen-bottom-limit frame-pix-height)))))
 
 (defun atomic-chrome-normalize-rect (rect)
   "Normalize pixel dimensions to character dimensions in RECT.
 
 Argument RECT is an alist containing pixel dimensions and positions."
-  (let ((char-width (frame-char-width))
-        (char-height  (frame-char-height))
-        (pix-width (alist-get 'width rect))
-        (pix-height (alist-get 'height rect))
-        (left)
-        (height)
-        (width))
-    (setq height (min
-                  (* 2 (/ pix-height char-height))
-                  (display-pixel-height)))
-    (setq width (/ pix-width char-width))
-    (setq left (atomic-chrome--calculate-frame-left-position
-                rect))
+  (let* ((screen-width (display-pixel-width))
+         (screen-height (display-pixel-height))
+         (pix-width (atomic-chrome--rect-edge rect 'width))
+         (pix-height (atomic-chrome--rect-edge rect 'height))
+         (rect-top (atomic-chrome--rect-edge rect 'top))
+         (screen-bottom-limit (- screen-height
+                                 (max 24 (frame-char-height))))
+         (min-height (atomic-chrome--minimum-frame-height))
+         (max-width (atomic-chrome--pixels-to-columns
+                     (max 1 (- screen-width (frame-char-width)))))
+         (max-height (max min-height
+                          (atomic-chrome--pixels-to-lines
+                           (max 1 screen-bottom-limit))))
+         (width (atomic-chrome--clamp
+                 (if (> pix-width 0)
+                     (atomic-chrome--pixels-to-columns pix-width)
+                   atomic-chrome-buffer-frame-width)
+                 1
+                 max-width))
+         (desired-height (atomic-chrome--clamp
+                          (max min-height
+                               (if (> pix-height 0)
+                                   (* 2 (atomic-chrome--pixels-to-lines pix-height))
+                                 atomic-chrome-buffer-frame-height))
+                          min-height
+                          max-height))
+         (available-height-at-top (max 1
+                                       (atomic-chrome--pixels-to-lines
+                                        (max 1 (- screen-bottom-limit
+                                                  rect-top)))))
+         (height (if (>= available-height-at-top min-height)
+                     (min desired-height available-height-at-top)
+                   min-height))
+         (frame-pix-width (* width (frame-char-width)))
+         (frame-pix-height (* height (frame-char-height)))
+         (left (atomic-chrome--calculate-frame-left-position
+                rect frame-pix-width))
+         (top (if (>= available-height-at-top min-height)
+                  (atomic-chrome--clamp rect-top
+                                        0
+                                        (max 0 (- screen-bottom-limit
+                                                  frame-pix-height)))
+                (atomic-chrome--calculate-frame-top-position
+                 rect frame-pix-height))))
     (list (cons 'width width)
           (cons 'height height)
           (cons 'left left)
-          (cons 'top (alist-get 'top rect)))))
+          (cons 'top top))))
 
 (defvar atomic-chrome-frame-socket-incomplete-buffers-hash (make-hash-table
                                                             :test 'eq)
