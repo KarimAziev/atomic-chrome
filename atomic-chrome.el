@@ -647,7 +647,10 @@ positioning the frame near the area being edited."
           ;; not an emacsclient frame (#10).
           ((and (memq system-type '(gnu gnu/linux gnu/kfreebsd))
                 (not (frame-parameter (selected-frame) 'client)))
-           (make-frame-on-display (getenv "DISPLAY") frame-params))
+           (make-frame-on-display
+            (or (and (featurep 'pgtk) (getenv "WAYLAND_DISPLAY"))
+                (getenv "DISPLAY"))
+            frame-params))
           (t
            (make-frame frame-params)))))
 
