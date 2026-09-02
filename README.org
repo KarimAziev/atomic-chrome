@@ -249,6 +249,8 @@ If you select =frame=, you can set the width and height of the frame with =atomi
 #+begin_quote
 [!TIP]
 By default, Atomic Chrome tries to automatically calculate the =left= and =top= positions of the frame based on the position of the textarea in the browser. You can disable this by adding these parameters to =atomic-chrome-frame-parameters=, which take precedence.
+
+Automatic placement uses the work area of the monitor containing the browser element, prefers a horizontal side with enough room, and keeps the complete outer frame—including its minibuffer—inside that work area. If the configured frame is larger than the available work area, Atomic Chrome shrinks it just enough to fit.
 #+end_quote
 
 ** File Creation

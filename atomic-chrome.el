@@ -610,49 +610,75 @@ Argument MAX-WIDTH is the maximum length of the substring to extract."
 (defun atomic-chrome--make-frame (&optional rect)
   "Create a new frame for Atomic Chrome with specified parameters.
 
-Argument TITLE is a string representing the title of the frame.
-
 Optional argument RECT is an alist containing pixel dimensions and positions for
 the frame.
 
 If RECT is provided, the left and top position of the frame may be calculated
 automatically, allowing the frame to open in alignment with specific elements on
-the client side, such as a text area in a web browser. This is useful for
+the client side, such as a text area in a web browser.  This is useful for
 positioning the frame near the area being edited."
-  (let ((rect-params (and rect (atomic-chrome-normalize-rect rect)))
-        (frame-params (delq nil
-                            (append
-                             (list (cons 'width
-                                         atomic-chrome-buffer-frame-width))
-                             (list (cons 'height
-                                         atomic-chrome-buffer-frame-height))
-                             atomic-chrome-frame-parameters))))
-    (when rect-params
-      (setq frame-params (append frame-params rect-params)))
+  (let* ((auto-left (and rect
+                         (not (assq 'left atomic-chrome-frame-parameters))))
+         (auto-top (and rect
+                        (not (assq 'top atomic-chrome-frame-parameters))))
+         (hide-while-positioning
+          (and (or auto-left auto-top)
+               (not (assq 'visibility atomic-chrome-frame-parameters))))
+         (frame-params (delq nil
+                             (append
+                              (list (cons 'width
+                                          atomic-chrome-buffer-frame-width))
+                              (list (cons 'height
+                                          atomic-chrome-buffer-frame-height))
+                              atomic-chrome-frame-parameters)))
+         (frame nil))
+    ;; Creating the frame hidden prevents it from flashing at the window
+    ;; manager's default position before its actual outer size is known.
+    (when hide-while-positioning
+      (push '(visibility . nil) frame-params))
     (when (and (or (assq 'left frame-params)
                    (assq 'top frame-params)))
       (when (not (cdr (assq 'user-position frame-params)))
         (push '(user-position . t) frame-params)))
-    (cond ((memq window-system '(pgtk x))
-           (if (or (not x-display-name)
-                   (string-match-p "wayland" x-display-name))
-               (make-frame frame-params)
-             (make-frame-on-display (getenv "DISPLAY") frame-params)))
-          ;; Avoid using make-frame-on-display for Mac OS
-          ((memq window-system '(ns mac))
-           (make-frame frame-params))
-          ((memq window-system '(w32))
-           (make-frame-on-display "w32" frame-params))
-          ;; For Emacs running as a daemon on Linux when the selected frame is
-          ;; not an emacsclient frame (#10).
-          ((and (memq system-type '(gnu gnu/linux gnu/kfreebsd))
-                (not (frame-parameter (selected-frame) 'client)))
-           (make-frame-on-display
-            (or (and (featurep 'pgtk) (getenv "WAYLAND_DISPLAY"))
-                (getenv "DISPLAY"))
-            frame-params))
-          (t
-           (make-frame frame-params)))))
+    (setq frame
+          (cond ((memq window-system '(pgtk x))
+                 (if (or (not x-display-name)
+                         (string-match-p "wayland" x-display-name))
+                     (make-frame frame-params)
+                   (make-frame-on-display (getenv "DISPLAY") frame-params)))
+                ;; Avoid using make-frame-on-display for Mac OS.
+                ((memq window-system '(ns mac))
+                 (make-frame frame-params))
+                ((memq window-system '(w32))
+                 (make-frame-on-display "w32" frame-params))
+                ;; For Emacs running as a daemon on Linux when the selected
+                ;; frame is not an emacsclient frame (#10).
+                ((and (memq system-type '(gnu gnu/linux gnu/kfreebsd))
+                      (not (frame-parameter (selected-frame) 'client)))
+                 (make-frame-on-display
+                  (or (and (featurep 'pgtk) (getenv "WAYLAND_DISPLAY"))
+                      (getenv "DISPLAY"))
+                  frame-params))
+                (t
+                 (make-frame frame-params))))
+    (when (or auto-left auto-top)
+      (let* ((workarea (atomic-chrome--monitor-workarea rect))
+             (_ (atomic-chrome--fit-frame-to-workarea frame workarea))
+             (position-params
+              (atomic-chrome-normalize-rect
+               rect (frame-pixel-width frame) (frame-pixel-height frame)
+               workarea))
+             (current-position (frame-position frame))
+             (left (if auto-left
+                       (alist-get 'left position-params)
+                     (car current-position)))
+             (top (if auto-top
+                      (alist-get 'top position-params)
+                    (cdr current-position))))
+        (set-frame-position frame left top)))
+    (when hide-while-positioning
+      (make-frame-visible frame))
+    frame))
 
 (defun atomic-chrome-show-edit-buffer (buffer _title &optional rect)
   "Open or switch to an edit BUFFER, setting its dimensions as specified.
@@ -1009,56 +1035,196 @@ represent a JSON false value.  It defaults to `:false'."
           (json-false (or false-object nil)))
       (json-read-from-string str))))
 
-(defun atomic-chrome--calculate-frame-left-position (rect)
-  "Calculate left position for an frame based on screen and window dimensions.
+(defun atomic-chrome--clamp (value minimum maximum)
+  "Clamp VALUE to the inclusive range from MINIMUM to MAXIMUM."
+  (max minimum (min value maximum)))
 
-Argument RECT is an alist containing `left', and `right' with
-their respective numeric values in pixels."
-  (let* ((screen-width (display-pixel-width))
-         (emacs-pix-width
-          (* atomic-chrome-buffer-frame-width (frame-char-width)))
-         (left-space (alist-get 'left rect))
-         (right-space (- screen-width (alist-get 'right rect)))
-         (emacs-frame-pos nil))
-    (if (>= (+ left-space right-space) emacs-pix-width)
-        ;; We have enough space to place Emacs frame without covering the text area
-        (if (> left-space right-space)
-            ;; Place to the left
-            (setq emacs-frame-pos (- left-space emacs-pix-width))
-          ;; Place to the right
-          (setq emacs-frame-pos (alist-get 'right rect)))
-      ;; Not enough space, cover text area starting from its right or left side
-      (if (< emacs-pix-width screen-width)
-          (if (> left-space right-space)
-              ;; Place to the left, covering the area partially or entirely
-              (setq emacs-frame-pos (- left-space emacs-pix-width))
-            ;; Place to the right, covering the area partially or entirely
-            (setq emacs-frame-pos (alist-get 'left rect)))
-        ;; Screen is too small, cover the text area completely
-        (setq emacs-frame-pos (alist-get 'left rect))))
-    emacs-frame-pos))
+(defun atomic-chrome--screen-rect (rect)
+  "Return RECT with internally consistent screen-relative coordinates.
 
-(defun atomic-chrome-normalize-rect (rect)
-  "Normalize pixel dimensions to character dimensions in RECT.
+The browser extension converts the viewport-relative `x' and `y' values of a
+DOMRect to screen coordinates.  The other DOMRect edges remain relative to the
+browser viewport, so derive all four edges from `x', `y', `width', and `height'.
+Fall back to the standard DOMRect edge names for older clients."
+  (let* ((left (or (alist-get 'x rect) (alist-get 'left rect) 0))
+         (top (or (alist-get 'y rect) (alist-get 'top rect) 0))
+         (width (max 0 (or (alist-get 'width rect)
+                           (and (alist-get 'right rect)
+                                (- (alist-get 'right rect) left))
+                           0)))
+         (height (max 0 (or (alist-get 'height rect)
+                            (and (alist-get 'bottom rect)
+                                 (- (alist-get 'bottom rect) top))
+                            0))))
+    (list (cons 'left left)
+          (cons 'top top)
+          (cons 'right (+ left width))
+          (cons 'bottom (+ top height))
+          (cons 'width width)
+          (cons 'height height))))
 
-Argument RECT is an alist containing pixel dimensions and positions."
-  (let ((char-width (frame-char-width))
-        (char-height  (frame-char-height))
-        (pix-width (alist-get 'width rect))
-        (pix-height (alist-get 'height rect))
-        (left)
-        (height)
-        (width))
-    (setq height (min
-                  (* 2 (/ pix-height char-height))
-                  (display-pixel-height)))
-    (setq width (/ pix-width char-width))
-    (setq left (atomic-chrome--calculate-frame-left-position
-                rect))
+(defun atomic-chrome--rectangle-intersection-area (first second)
+  "Return the intersection area of rectangles FIRST and SECOND.
+
+FIRST is a normalized rect alist.  SECOND is a list of the form
+`(LEFT TOP WIDTH HEIGHT)'."
+  (let* ((left (max (alist-get 'left first) (nth 0 second)))
+         (top (max (alist-get 'top first) (nth 1 second)))
+         (right (min (alist-get 'right first)
+                     (+ (nth 0 second) (nth 2 second))))
+         (bottom (min (alist-get 'bottom first)
+                      (+ (nth 1 second) (nth 3 second)))))
+    (* (max 0 (- right left)) (max 0 (- bottom top)))))
+
+(defun atomic-chrome--monitor-workarea (rect)
+  "Return the monitor work area containing most of RECT.
+
+The result has the form `(LEFT TOP WIDTH HEIGHT)'.  Unlike display-wide pixel
+dimensions, a monitor work area excludes reserved areas such as the menu bar,
+dock, or desktop panel."
+  (let* ((screen-rect (atomic-chrome--screen-rect rect))
+         (monitors (and (fboundp 'display-monitor-attributes-list)
+                        (display-monitor-attributes-list)))
+         (center-x (/ (+ (alist-get 'left screen-rect)
+                         (alist-get 'right screen-rect))
+                      2.0))
+         (center-y (/ (+ (alist-get 'top screen-rect)
+                         (alist-get 'bottom screen-rect))
+                      2.0))
+         best-workarea
+         best-score)
+    (dolist (monitor monitors)
+      (let* ((geometry (alist-get 'geometry monitor))
+             (workarea (or (alist-get 'workarea monitor) geometry))
+             (area (atomic-chrome--rectangle-intersection-area
+                    screen-rect geometry))
+             (nearest-x (atomic-chrome--clamp
+                         center-x (nth 0 geometry)
+                         (+ (nth 0 geometry) (nth 2 geometry))))
+             (nearest-y (atomic-chrome--clamp
+                         center-y (nth 1 geometry)
+                         (+ (nth 1 geometry) (nth 3 geometry))))
+             ;; Any positive intersection wins over a negative distance.  The
+             ;; distance fallback handles stale or slightly outlying browser
+             ;; coordinates without always selecting the primary monitor.
+             (score (if (> area 0)
+                        area
+                      (- (+ (expt (- center-x nearest-x) 2)
+                            (expt (- center-y nearest-y) 2))))))
+        (when (or (null best-score) (> score best-score))
+          (setq best-score score
+                best-workarea workarea))))
+    (or best-workarea
+        (list 0 0 (display-pixel-width) (display-pixel-height)))))
+
+(defun atomic-chrome--calculate-frame-left-position
+    (rect &optional frame-pixel-width workarea)
+  "Calculate a visible horizontal frame position near RECT.
+
+Optional argument FRAME-PIXEL-WIDTH is the actual outer frame width.  Optional
+argument WORKAREA is the target monitor's `(LEFT TOP WIDTH HEIGHT)' work area."
+  (let* ((screen-rect (atomic-chrome--screen-rect rect))
+         (workarea (or workarea
+                       (atomic-chrome--monitor-workarea screen-rect)))
+         (work-left (nth 0 workarea))
+         (work-right (+ work-left (nth 2 workarea)))
+         (frame-width (or frame-pixel-width
+                          (* atomic-chrome-buffer-frame-width
+                             (frame-char-width))))
+         (rect-left (alist-get 'left screen-rect))
+         (rect-right (alist-get 'right screen-rect))
+         (left-space (- rect-left work-left))
+         (right-space (- work-right rect-right))
+         position)
+    (setq position
+          (cond
+           ((>= frame-width (nth 2 workarea)) work-left)
+           ((and (>= left-space frame-width)
+                 (> left-space right-space))
+            (- rect-left frame-width))
+           ((>= right-space frame-width) rect-right)
+           ((>= left-space frame-width) (- rect-left frame-width))
+           ((> left-space right-space) (- rect-left frame-width))
+           (t rect-right)))
+    (atomic-chrome--clamp position work-left (- work-right frame-width))))
+
+(defun atomic-chrome--calculate-frame-top-position
+    (rect &optional frame-pixel-height workarea)
+  "Calculate a visible vertical frame position aligned with RECT.
+
+Optional argument FRAME-PIXEL-HEIGHT is the actual outer frame height.  Optional
+argument WORKAREA is the target monitor's `(LEFT TOP WIDTH HEIGHT)' work area."
+  (let* ((screen-rect (atomic-chrome--screen-rect rect))
+         (workarea (or workarea
+                       (atomic-chrome--monitor-workarea screen-rect)))
+         (work-top (nth 1 workarea))
+         (work-bottom (+ work-top (nth 3 workarea)))
+         (frame-height (or frame-pixel-height
+                           (* atomic-chrome-buffer-frame-height
+                              (frame-char-height)))))
+    (if (>= frame-height (nth 3 workarea))
+        work-top
+      (atomic-chrome--clamp (alist-get 'top screen-rect)
+                            work-top (- work-bottom frame-height)))))
+
+(defun atomic-chrome--fit-frame-to-workarea (frame workarea)
+  "Shrink FRAME as needed to fit inside WORKAREA.
+
+WORKAREA has the form `(LEFT TOP WIDTH HEIGHT)'.  Account for the difference
+between the frame's text area and its outer size, which includes borders, title
+bar, menu bar, and the minibuffer."
+  (let ((attempts 0)
+        overflow-width
+        overflow-height)
+    ;; Some window managers round pixel sizes to character-cell increments.
+    ;; Re-measure once after resizing so such rounding cannot leave an edge just
+    ;; outside the work area.
+    (while (and (< attempts 2)
+                (progn
+                  (setq overflow-width
+                        (max 0 (- (frame-pixel-width frame)
+                                  (nth 2 workarea)))
+                        overflow-height
+                        (max 0 (- (frame-pixel-height frame)
+                                  (nth 3 workarea))))
+                  (or (> overflow-width 0) (> overflow-height 0))))
+      (let* ((text-width (* (frame-width frame) (frame-char-width frame)))
+             (text-height (* (frame-height frame) (frame-char-height frame)))
+             (new-width (max (frame-char-width frame)
+                             (- text-width overflow-width)))
+             (new-height (max (frame-char-height frame)
+                              (- text-height overflow-height))))
+        (set-frame-size frame new-width new-height t)
+        (setq attempts (1+ attempts))))))
+
+(defun atomic-chrome-normalize-rect
+    (rect &optional frame-pixel-width frame-pixel-height workarea)
+  "Convert browser RECT to frame dimensions and safe screen coordinates.
+
+RECT is a DOMRect alist whose `x' and `y' values are screen-relative pixels.
+The returned `width' and `height' are suggested character dimensions.  The
+returned `left' and `top' are clamped so an outer frame of FRAME-PIXEL-WIDTH by
+FRAME-PIXEL-HEIGHT fits inside WORKAREA.  The optional pixel dimensions and
+work area are inferred when omitted."
+  (let* ((screen-rect (atomic-chrome--screen-rect rect))
+         (workarea (or workarea
+                       (atomic-chrome--monitor-workarea screen-rect)))
+         (char-width (frame-char-width))
+         (char-height (frame-char-height))
+         (pix-width (alist-get 'width screen-rect))
+         (pix-height (alist-get 'height screen-rect))
+         (height (max 1
+                      (min (* 2 (max 1 (/ pix-height char-height)))
+                           (max 1 (/ (nth 3 workarea) char-height)))))
+         (width (max 1 (/ pix-width char-width))))
     (list (cons 'width width)
           (cons 'height height)
-          (cons 'left left)
-          (cons 'top (alist-get 'top rect)))))
+          (cons 'left
+                (atomic-chrome--calculate-frame-left-position
+                 screen-rect frame-pixel-width workarea))
+          (cons 'top
+                (atomic-chrome--calculate-frame-top-position
+                 screen-rect frame-pixel-height workarea)))))
 
 (defvar atomic-chrome-frame-socket-incomplete-buffers-hash (make-hash-table
                                                             :test 'eq)
