@@ -607,6 +607,50 @@ Argument STR is the string from which a substring is extracted.
 Argument MAX-WIDTH is the maximum length of the substring to extract."
   (substring str 0 (min (length str) max-width)))
 
+(defun atomic-chrome--preferred-display ()
+  "Return the preferred display name for creating a graphical frame.
+
+Prefer `WAYLAND_DISPLAY' when Emacs has PGTK support, matching emacsclient's
+display selection.  Otherwise return `DISPLAY'.  Treat empty environment
+variables as unset."
+  (let ((wayland-display (and (featurep 'pgtk)
+                              (getenv "WAYLAND_DISPLAY")))
+        (x-display (getenv "DISPLAY")))
+    (or (and wayland-display
+             (not (equal wayland-display ""))
+             wayland-display)
+        (and x-display
+             (not (equal x-display ""))
+             x-display))))
+
+(defun atomic-chrome--create-frame (frame-params)
+  "Create an Atomic Chrome frame using FRAME-PARAMS.
+
+Select the appropriate frame creation function and display for the active
+window system.  In particular, do not use `make-frame-on-display' for an
+already-running PGTK/Wayland or macOS GUI, but prefer `WAYLAND_DISPLAY' when a
+Linux daemon with PGTK support needs to create its first graphical frame."
+  (cond ((memq window-system '(pgtk x))
+         (if (or (not x-display-name)
+                 (string-match-p "wayland" x-display-name))
+             (make-frame frame-params)
+           (make-frame-on-display (atomic-chrome--preferred-display)
+                                  frame-params)))
+        ;; Avoid using make-frame-on-display for macOS.
+        ((memq window-system '(ns mac))
+         (make-frame frame-params))
+        ((memq window-system '(w32))
+         (make-frame-on-display "w32" frame-params))
+        ;; For Emacs running as a daemon on Linux when the selected frame is
+        ;; not an emacsclient frame (#10).  Prefer a Wayland socket for PGTK
+        ;; builds, like emacsclient itself.
+        ((and (memq system-type '(gnu gnu/linux gnu/kfreebsd))
+              (not (frame-parameter (selected-frame) 'client)))
+         (make-frame-on-display (atomic-chrome--preferred-display)
+                                frame-params))
+        (t
+         (make-frame frame-params))))
+
 (defun atomic-chrome--make-frame (&optional rect)
   "Create a new frame for Atomic Chrome with specified parameters.
 
@@ -640,27 +684,7 @@ positioning the frame near the area being edited."
                    (assq 'top frame-params)))
       (when (not (cdr (assq 'user-position frame-params)))
         (push '(user-position . t) frame-params)))
-    (setq frame
-          (cond ((memq window-system '(pgtk x))
-                 (if (or (not x-display-name)
-                         (string-match-p "wayland" x-display-name))
-                     (make-frame frame-params)
-                   (make-frame-on-display (getenv "DISPLAY") frame-params)))
-                ;; Avoid using make-frame-on-display for Mac OS.
-                ((memq window-system '(ns mac))
-                 (make-frame frame-params))
-                ((memq window-system '(w32))
-                 (make-frame-on-display "w32" frame-params))
-                ;; For Emacs running as a daemon on Linux when the selected
-                ;; frame is not an emacsclient frame (#10).
-                ((and (memq system-type '(gnu gnu/linux gnu/kfreebsd))
-                      (not (frame-parameter (selected-frame) 'client)))
-                 (make-frame-on-display
-                  (or (and (featurep 'pgtk) (getenv "WAYLAND_DISPLAY"))
-                      (getenv "DISPLAY"))
-                  frame-params))
-                (t
-                 (make-frame frame-params))))
+    (setq frame (atomic-chrome--create-frame frame-params))
     (when (or auto-left auto-top)
       (let* ((workarea (atomic-chrome--monitor-workarea rect))
              (_ (atomic-chrome--fit-frame-to-workarea frame workarea))
